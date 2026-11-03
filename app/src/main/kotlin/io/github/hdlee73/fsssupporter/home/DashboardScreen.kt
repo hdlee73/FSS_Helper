@@ -71,7 +71,7 @@ class DashboardActions(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DashboardScreen(store: TaskStore, dart: DartModel, settings: SettingsRepo, cache: LawCache, a: DashboardActions) {
+fun DashboardScreen(store: TaskStore, dart: DartModel, settings: SettingsRepo, cache: LawCache, a: DashboardActions, inspectionStep: (String) -> String? = { null }) {
     val data by store.data.collectAsState()
     val saved by dart.saved.collectAsState()
     val newCheck by dart.newCheck.collectAsState()
@@ -121,7 +121,8 @@ fun DashboardScreen(store: TaskStore, dart: DartModel, settings: SettingsRepo, c
                         Pill(t.kind.label)
                         Column(Modifier.weight(1f)) {
                             Text(t.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val sub = listOfNotNull(t.target.ifBlank { null }, if (t.checklist.isNotEmpty()) "${t.checklist.count { it.done }}/${t.checklist.size} 완료" else null).joinToString(" · ")
+                            val step = if (t.kind == io.github.hdlee73.fsssupporter.tasks.TaskKind.INSPECTION) inspectionStep(t.id) else null
+                            val sub = listOfNotNull(t.target.ifBlank { null }, step?.let { "다음 단계: $it" }, if (t.checklist.isNotEmpty()) "${t.checklist.count { it.done }}/${t.checklist.size} 완료" else null).joinToString(" · ")
                             if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         dueLabel(t.dueDate(), today)?.let { label ->

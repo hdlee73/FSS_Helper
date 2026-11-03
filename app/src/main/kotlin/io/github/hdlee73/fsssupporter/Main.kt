@@ -74,6 +74,11 @@ import io.github.hdlee73.fsssupporter.home.DashboardActions
 import io.github.hdlee73.fsssupporter.home.DashboardScreen
 import io.github.hdlee73.fsssupporter.home.PrefetchUi
 import io.github.hdlee73.fsssupporter.home.SettingsScreen
+import io.github.hdlee73.fsssupporter.inspection.FormRef
+import io.github.hdlee73.fsssupporter.inspection.InspectionGuide
+import io.github.hdlee73.fsssupporter.inspection.InspectionScreen
+import io.github.hdlee73.fsssupporter.inspection.InspectionStore
+import io.github.hdlee73.fsssupporter.inspection.InspectionUi
 import io.github.hdlee73.fsssupporter.law.LawModule
 import io.github.hdlee73.fsssupporter.law.LawScreen
 import io.github.hdlee73.fsssupporter.law.LawSearchModel
@@ -111,6 +116,8 @@ class AppGraph {
     val dart = DartModel(settings, scope)
     val tasks = TaskStore()
     val tasksUi = TasksUi()
+    val inspection = InspectionStore()
+    val inspectionUi = InspectionUi()
     val opinion = OpinionModel(CitationVerifier(law.repository), scope)
     val sanction = SanctionStore()
     val sanctionUi = SanctionUi()
@@ -124,6 +131,7 @@ class AppGraph {
         nav.registerInnerBack(Dest.LAW) { lawSearch.back() }
         nav.registerInnerBack(Dest.DART) { dart.back() }
         nav.registerInnerBack(Dest.TASKS) { tasksUi.back() }
+        nav.registerInnerBack(Dest.INSPECTION) { inspectionUi.back() }
         nav.registerInnerBack(Dest.OPINION) { if (opinion.selected != null) { opinion.select(null); true } else false }
     }
 
@@ -131,6 +139,22 @@ class AppGraph {
         nav.go(Dest.LAW)
         lawSearch.onQueryChange(q)
         lawSearch.submit(q)
+    }
+
+    /** 검사 서식을 의견서 도우미 초안으로 연다: 기본 서식 → 가져온 원문 → 제목만 있는 빈 초안 순 */
+    fun writeForm(form: FormRef, task: WorkTask?) {
+        val tplId = InspectionGuide.TEMPLATE_FOR_FORM[form.no]
+        val tpl = tplId?.let { id -> opinion.templates.firstOrNull { it.id == id } }
+        val raw = inspection.library.value.forms[form.no]
+        val body = when {
+            tpl != null -> tpl.body
+            raw != null -> raw
+            else -> "${form.name}\n\n※ 관련 규정: ${form.basis.ifBlank { "-" }} · 대상처: ${form.target.ifBlank { "-" }}\n※ 검사 진행 관리 > 매뉴얼 탭에서 '검사관련 서식'을 가져오면 원문 서식으로 작성할 수 있습니다.\n"
+        }
+        val title = "제${form.no}호 ${form.name}" + (task?.let { " - ${it.title}" } ?: "")
+        opinion.createFromText(title, body, tplId.orEmpty(), task?.id)
+        nav.go(Dest.OPINION)
+        message("'${form.name}' 초안을 만들었습니다.")
     }
 
     fun insertToOpinion(text: String) {
@@ -184,7 +208,7 @@ private fun handleKey(e: KeyEvent, g: AppGraph): Boolean {
     }
 }
 
-private val NUM_KEYS = listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six)
+private val NUM_KEYS = listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven)
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -236,7 +260,11 @@ private fun Content(g: AppGraph) {
             g.tasks, g.dart, g.settings, g.law.cache,
             DashboardActions(
                 searchLaw = g::searchLaw,
-                openTask = { id -> g.tasksUi.tab = 0; g.tasksUi.filter = "open"; g.tasksUi.selectedId = id; g.nav.go(Dest.TASKS) },
+                openTask = { id ->
+                    val t = g.tasks.data.value.tasks.firstOrNull { it.id == id }
+                    if (t != null && t.kind == io.github.hdlee73.fsssupporter.tasks.TaskKind.INSPECTION) { g.inspectionUi.tab = 0; g.inspectionUi.taskId = id; g.inspectionUi.stepId = null; g.nav.go(Dest.INSPECTION) }
+                    else { g.tasksUi.tab = 0; g.tasksUi.filter = "open"; g.tasksUi.selectedId = id; g.nav.go(Dest.TASKS) }
+                },
                 newTask = {
                     val t = WorkTask(title = "새 작업", status = TaskStatus.IN_PROGRESS, start = LocalDate.now().toString())
                     g.tasks.upsert(t); g.tasksUi.tab = 0; g.tasksUi.selectedId = t.id; g.nav.go(Dest.TASKS)
@@ -248,8 +276,14 @@ private fun Content(g: AppGraph) {
                 openSanction = { g.nav.go(Dest.SANCTION) },
                 openSettings = { g.nav.go(Dest.SETTINGS) },
             ),
+            inspectionStep = { id -> g.inspection.of(id).current()?.title },
         )
         Dest.TASKS -> TasksScreen(g.tasks, g.tasksUi, onOpenLaw = g::searchLaw)
+        Dest.INSPECTION -> InspectionScreen(
+            g.inspection, g.tasks, g.inspectionUi, onWriteForm = g::writeForm,
+            onOpenTasks = { id -> g.tasksUi.tab = 0; g.tasksUi.filter = "all"; g.tasksUi.selectedId = id; g.nav.go(Dest.TASKS) },
+            onMessage = g::message,
+        )
         Dest.LAW -> LawScreen(g.lawSearch, g.settings, g.law.cache, onInsertToOpinion = g::insertToOpinion, onMessage = g::message)
         Dest.DART -> DartScreen(g.dart, onOpenSettings = { g.nav.go(Dest.SETTINGS) })
         Dest.OPINION -> OpinionScreen(g.opinion, g.lawSearch.isSample, onMessage = g::message)

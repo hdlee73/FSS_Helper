@@ -78,6 +78,14 @@ class OpinionModel(private val verifier: CitationVerifier, private val scope: Co
         return d
     }
 
+    /** 다른 화면(검사 진행 관리 등)에서 서식 글을 받아 새 초안을 만든다. */
+    fun createFromText(title: String, body: String, templateId: String = "", taskId: String? = null): Draft {
+        val d = Draft(title = title, templateId = templateId, body = body, taskId = taskId)
+        save { it.copy(drafts = listOf(d) + it.drafts, selected = d.id) }
+        _checks.value = CheckState.Idle
+        return d
+    }
+
     fun update(d: Draft) = save { s -> s.copy(drafts = s.drafts.map { if (it.id == d.id) d.copy(updatedAt = System.currentTimeMillis()) else it }) }
 
     fun delete(id: String) = save { s -> s.copy(drafts = s.drafts.filter { it.id != id }, selected = if (s.selected == id) null else s.selected) }

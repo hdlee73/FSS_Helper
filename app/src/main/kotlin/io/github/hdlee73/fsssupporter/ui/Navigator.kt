@@ -6,6 +6,7 @@ import androidx.compose.material.icons.outlined.Balance
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.ManageSearch
 import androidx.compose.material.icons.outlined.Settings
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class Dest(val label: String, val icon: ImageVector, val lower: Boolean = false) {
     DASHBOARD("대시보드", Icons.Outlined.Dashboard),
     TASKS("작업 관리", Icons.Outlined.Assignment),
+    INSPECTION("검사 진행 관리", Icons.Outlined.FactCheck),
     LAW("스마트 법령검색", Icons.Outlined.ManageSearch),
     DART("기업 개황·공시", Icons.Outlined.Business),
     OPINION("의견서 도우미", Icons.Outlined.EditNote),

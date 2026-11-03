@@ -222,7 +222,7 @@ fun LocalField(key: String, initial: String, modifier: Modifier, label: String, 
 }
 
 @Composable
-private fun DateField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+fun DateField(label: String, value: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
     var text by remember(value) { mutableStateOf(value) }
     val bad = normalizeDate(text) == null
     OutlinedTextField(
