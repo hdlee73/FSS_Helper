@@ -16,7 +16,10 @@ data class AppSettings(
     val lawOcSealed: String = "",
     /** OpenDART 인증키. DPAPI로 감싼 값 */
     val dartKeySealed: String = "",
-    val sidebarCollapsed: Boolean = false,
+    /** 한글 문서(HWP·HWPX)를 열 프로그램 */
+    val hwpApp: HwpApp = HwpApp.AUTO,
+    /** 이음오피스를 기본 위치가 아닌 곳에 설치했을 때 IeumOffice.exe 경로 */
+    val ieumPath: String = "",
     val theme: ThemeMode = ThemeMode.SYSTEM,
     /** 내부망에서 쓰므로 기본은 끔(앱 정보에서 직접 확인·파일로 설치) */
     val autoUpdate: Boolean = false,

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,71 +60,91 @@ import java.time.format.DateTimeFormatter
 data class HomeBadges(val counts: Map<Dest, String> = emptyMap())
 
 /**
- * 이음오피스 시작 화면처럼: 인사, 도구 카드 두 줄, 아래에 최근 사용 목록(탭·찾기·즐겨찾기).
+ * 시작 화면: 짧은 인사, 바로 가기(한 가지 색), 최근 사용 목록(전체/즐겨찾기·찾기).
+ * 메뉴는 위 탭에 모두 있으므로 여기서는 꼭 필요한 것만 차분하게 보여 준다.
  */
 @Composable
 fun HomeScreen(recents: RecentStore, badges: HomeBadges, onTool: (Dest) -> Unit, onRecent: (Recent) -> Unit) {
     val data by recents.data.collectAsState()
-    var tab by remember { mutableStateOf<RecentKind?>(null) }
     var starredOnly by remember { mutableStateOf(false) }
     var find by remember { mutableStateOf("") }
+    var showAll by remember { mutableStateOf(false) }
     val sc = rememberScrollState()
-    Column(Modifier.fillMaxSize().verticalScroll(sc).padding(horizontal = 36.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Column {
-            Text("안녕하세요.", style = MaterialTheme.typography.headlineMedium)
-            Text("무엇을 하고 싶으신가요?", style = MaterialTheme.typography.headlineSmall)
-        }
-        // 도구 카드: 화면 너비에 맞춰 한 줄 4개(좁으면 2개)
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val perRow = if (maxWidth < 760.dp) 2 else 4
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Dest.tools.chunked(perRow).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { d -> ToolCard(d, badges.counts[d], Modifier.weight(1f)) { onTool(d) } }
-                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(
+            Modifier.widthIn(max = 1180.dp).fillMaxWidth().verticalScroll(sc).padding(horizontal = 40.dp, vertical = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("안녕하세요", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(LocalDate.now().format(TODAY), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            SectionTitle("바로 가기")
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val perRow = if (maxWidth < 820.dp) 2 else 4
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Dest.tools.chunked(perRow).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { d -> ToolCard(d, badges.counts[d], Modifier.weight(1f)) { onTool(d) } }
+                            repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
                     }
                 }
             }
-        }
-        // 최근 사용
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Segmented(
-                listOf("전체") + RecentKind.entries.map { it.label } + "즐겨찾기",
-                when { starredOnly -> RecentKind.entries.size + 1; tab == null -> 0; else -> RecentKind.entries.indexOf(tab) + 1 },
-            ) { i ->
-                starredOnly = i == RecentKind.entries.size + 1
-                tab = if (i in 1..RecentKind.entries.size) RecentKind.entries[i - 1] else null
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                SectionTitle("최근 사용")
+                Spacer(Modifier.width(10.dp))
+                TextTab("전체", !starredOnly) { starredOnly = false }
+                TextTab("즐겨찾기", starredOnly) { starredOnly = true }
+                Spacer(Modifier.weight(1f))
+                SearchField(find, { find = it }, {}, "이름 찾기", Modifier.width(240.dp))
             }
-            Spacer(Modifier.weight(1f))
-            SearchField(find, { find = it }, {}, "이름 찾기", Modifier.width(260.dp))
-        }
-        val items = data.items
-            .filter { tab == null || it.type == tab }
-            .filter { !starredOnly || it.starred }
-            .filter { find.isBlank() || it.title.contains(find.trim(), ignoreCase = true) || it.where.contains(find.trim(), ignoreCase = true) }
-        Surface(shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-            Column {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    HeaderCell("이름", Modifier.weight(1f))
-                    HeaderCell("종류", Modifier.width(110.dp))
-                    HeaderCell("위치", Modifier.width(180.dp))
-                    HeaderCell("사용한 날짜 ↓", Modifier.width(150.dp))
-                    Spacer(Modifier.width(72.dp))
+            val items = data.items
+                .filter { !starredOnly || it.starred }
+                .filter { find.isBlank() || it.title.contains(find.trim(), ignoreCase = true) || it.where.contains(find.trim(), ignoreCase = true) }
+            Surface(shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(vertical = 4.dp)) {
+                    if (items.isEmpty()) {
+                        Text(
+                            when {
+                                data.items.isEmpty() -> "아직 사용한 것이 없습니다. 서식·매뉴얼·법령·기업을 열면 여기에 쌓입니다."
+                                starredOnly -> "즐겨찾기한 항목이 없습니다. 목록에서 ☆를 누르면 여기에 모입니다."
+                                else -> "조건에 맞는 항목이 없습니다."
+                            },
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(22.dp),
+                        )
+                    }
+                    val shown = if (showAll) items.take(60) else items.take(10)
+                    shown.forEachIndexed { i, r ->
+                        if (i > 0) androidx.compose.material3.HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                        RecentRow(r, recents, onRecent)
+                    }
                 }
-                androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                if (items.isEmpty()) {
-                    Text(
-                        if (data.items.isEmpty()) "아직 사용한 것이 없습니다. 위 도구에서 서식·매뉴얼·법령·기업을 열면 여기에 쌓입니다." else "조건에 맞는 항목이 없습니다.",
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(22.dp),
-                    )
-                }
-                items.take(40).forEach { r -> RecentRow(r, recents, onRecent) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (items.size > 10) TextButton(onClick = { showAll = !showAll }) { Text(if (showAll) "접기" else "더 보기 (${items.size - 10})") }
+                Spacer(Modifier.weight(1f))
+                if (data.items.any { !it.starred }) TextButton(onClick = recents::clear) { Text("최근 기록 지우기", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
-        Row {
-            Text("최근 사용 ${data.items.size}개 · 즐겨찾기 ${data.items.count { it.starred }}개", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-            if (data.items.any { !it.starred }) TextButton(onClick = recents::clear) { Text("최근 기록 지우기(즐겨찾기는 남김)") }
-        }
+    }
+}
+
+private val TODAY = DateTimeFormatter.ofPattern("M월 d일 EEEE", java.util.Locale.KOREAN)
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun TextTab(label: String, on: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(50)).background(if (on) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent)
+            .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 5.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -135,53 +154,27 @@ private fun ToolCard(d: Dest, badge: String?, modifier: Modifier, onClick: () ->
     val hovered by hover.collectIsHoveredAsState()
     Surface(
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, if (hovered) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant),
-        shadowElevation = if (hovered) 3.dp else 0.dp,
-        modifier = modifier.height(112.dp).clip(RoundedCornerShape(12.dp)).hoverable(hover).clickable(onClick = onClick),
+        color = if (hovered) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.height(72.dp).clip(RoundedCornerShape(12.dp)).hoverable(hover).clickable(onClick = onClick),
     ) {
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            ToolGlyph(d.icon, d.tint)
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(d.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
-                    if (badge != null) Box(Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)) {
-                        Text(badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-                Text(d.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ToolGlyph(d.icon)
+            Column(Modifier.weight(1f)) {
+                Text(d.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(badge ?: d.hint, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (badge != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
-/** 이음오피스 파일 아이콘처럼: 옅은 바탕에 왼쪽 색 띠와 도구 그림 */
+/** 도구 그림: 모든 도구가 같은 한 가지 색(주 색)의 옅은 동그라미 */
 @Composable
-fun ToolGlyph(icon: ImageVector, tint: Color, size: Int = 30) {
-    Box(Modifier.size(size.dp).clip(RoundedCornerShape(7.dp)).background(tint.copy(alpha = 0.10f))) {
-        Box(Modifier.width(3.dp).fillMaxHeight().background(tint))
-        Icon(icon, null, tint = tint, modifier = Modifier.align(Alignment.Center).padding(start = 2.dp).size((size * 0.58f).dp))
+fun ToolGlyph(icon: ImageVector, size: Int = 36) {
+    Box(Modifier.size(size.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size((size * 0.5f).dp))
     }
-}
-
-@Composable
-private fun Segmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-    Row(Modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(3.dp)) {
-        labels.forEachIndexed { i, l ->
-            val on = i == selected
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp)).background(if (on) MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { onSelect(i) }.padding(horizontal = 14.dp, vertical = 6.dp),
-            ) {
-                Text(l, style = MaterialTheme.typography.labelLarge, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                    color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-@Composable
-private fun HeaderCell(text: String, modifier: Modifier) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
 }
 
 private val TIME = DateTimeFormatter.ofPattern("a h:mm")
@@ -205,23 +198,30 @@ private fun kindDest(k: RecentKind): Dest = when (k) {
 @Composable
 private fun RecentRow(r: Recent, recents: RecentStore, onOpen: (Recent) -> Unit) {
     val d = kindDest(r.type)
+    val hover = remember { MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
     Row(
-        Modifier.fillMaxWidth().clickable { onOpen(r) }.padding(horizontal = 18.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        Modifier.fillMaxWidth().hoverable(hover).clickable { onOpen(r) }.padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ToolGlyph(d.icon, d.tint, 24)
+        Icon(d.icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f)) {
             Text(r.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOf(r.type.label, r.where.ifBlank { d.label }).distinct().joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(r.type.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(110.dp))
-        Text(r.where.ifBlank { d.label }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(180.dp))
-        Text(whenLabel(r.at), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(150.dp))
-        IconButton(onClick = { recents.toggleStar(r.key) }, modifier = Modifier.size(32.dp)) {
-            Icon(if (r.starred) Icons.Outlined.Star else Icons.Outlined.StarBorder, if (r.starred) "즐겨찾기 해제" else "즐겨찾기", Modifier.size(17.dp),
-                tint = if (r.starred) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline)
-        }
-        IconButton(onClick = { recents.remove(r.key) }, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Outlined.Close, "목록에서 빼기", Modifier.size(15.dp), tint = MaterialTheme.colorScheme.outline)
+        Text(whenLabel(r.at), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // 별·빼기는 마우스를 올렸을 때만(즐겨찾기한 것은 별을 늘 보여 줌)
+        Box(Modifier.width(64.dp), contentAlignment = Alignment.CenterEnd) {
+            Row {
+                if (hovered || r.starred) IconButton(onClick = { recents.toggleStar(r.key) }, modifier = Modifier.size(30.dp)) {
+                    Icon(if (r.starred) Icons.Outlined.Star else Icons.Outlined.StarBorder, if (r.starred) "즐겨찾기 해제" else "즐겨찾기", Modifier.size(16.dp),
+                        tint = if (r.starred) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline)
+                }
+                if (hovered) IconButton(onClick = { recents.remove(r.key) }, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Outlined.Close, "목록에서 빼기", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.outline)
+                }
+            }
         }
     }
 }

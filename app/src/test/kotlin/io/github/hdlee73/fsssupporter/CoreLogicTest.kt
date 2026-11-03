@@ -142,6 +142,34 @@ class LibraryTest {
     }
 
 
+    @Test fun hwpxCutKeepsOnlyOneFormAndSectionSetup() {
+        val ns = """xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph""""
+        fun p(t: String) = """<hp:p><hp:run><hp:t>${t.replace("<", "&lt;").replace(">", "&gt;")}</hp:t></hp:run></hp:p>"""
+        val sec0 = """<hs:sec $ns><hp:p><hp:run><hp:secPr id="s"/><hp:t>표지</hp:t></hp:run></hp:p>${p("< 제1-1호 서식 >")}${p("첫 서식 내용")}${p("< 제1-2 호 서식 >")}${p("둘째 서식 내용")}</hs:sec>"""
+        val sec1 = """<hs:sec $ns><hp:p><hp:run><hp:secPr id="s2"/><hp:t>&lt; 제2-1호 서식 &gt;</hp:t></hp:run></hp:p>${p("셋째")}</hs:sec>"""
+        val hpf = """<opf:package xmlns:opf="http://www.idpf.org/2007/opf/"><opf:manifest><opf:item id="section0" href="Contents/section0.xml"/><opf:item id="section1" href="Contents/section1.xml"/></opf:manifest><opf:spine><opf:itemref idref="section0"/><opf:itemref idref="section1"/></opf:spine></opf:package>"""
+        val src = File.createTempFile("fss-cut", ".hwpx")
+        ZipOutputStream(src.outputStream()).use { z ->
+            listOf("mimetype" to "application/hwp+zip", "Contents/content.hpf" to hpf, "Contents/section0.xml" to sec0, "Contents/section1.xml" to sec1).forEach { (n, t) ->
+                z.putNextEntry(ZipEntry(n)); z.write(t.toByteArray()); z.closeEntry()
+            }
+        }
+        val out = File(src.parentFile, "fss-cut-out-${System.nanoTime()}.hwpx")
+        val r = io.github.hdlee73.fsssupporter.data.HwpxCut.cut(src, out, Hancom.Mark("< 제1-2호 서식 >"), Hancom.Mark("< 제2-1호 서식 >"))
+        assertTrue(r is Hancom.Result.Ok, r.toString())
+        val text = HwpText.extract(out)
+        assertTrue("둘째 서식 내용" in text && "첫 서식" !in text && "셋째" !in text && "표지" !in text, text)
+        java.util.zip.ZipFile(out).use { z ->
+            assertEquals("mimetype", z.entries().nextElement().name)
+            assertTrue(z.getEntry("Contents/section1.xml") == null)
+            val sec = z.getInputStream(z.getEntry("Contents/section0.xml")).readBytes().decodeToString()
+            assertTrue("secPr" in sec, sec)
+            val man = z.getInputStream(z.getEntry("Contents/content.hpf")).readBytes().decodeToString()
+            assertTrue("section1" !in man, man)
+        }
+        src.delete(); out.delete()
+    }
+
     @Test fun hwp5RejectsNonHwp() {
         val f = File.createTempFile("fss-test", ".hwp").apply { writeText("not a hwp") }
         val e = runCatching { HwpText.extract(f) }.exceptionOrNull()

@@ -1,9 +1,13 @@
 package io.github.hdlee73.fsssupporter
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.material3.HorizontalDivider
+import io.github.hdlee73.fsssupporter.data.DocApps
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,16 +24,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.MenuOpen
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -61,7 +61,6 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -152,12 +151,16 @@ class AppGraph {
     val libraryActions = LibraryActions(
         importFile = this::importFile,
         writeForm = this::writeForm,
-        openedManual = { title, page -> recents.touch(RecentKind.MANUAL, title, page.toString(), "검사매뉴얼 ${page + 1}쪽") },
+        openedManual = { title, page -> recents.touch(RecentKind.MANUAL, title, page.toString(), "검사품질관리 매뉴얼 ${page + 1}쪽") },
         openedForm = { no -> FormCatalog.form(no).let { f -> recents.touch(RecentKind.FORM, f.label.trim(), no, "검사관련 서식") } },
         message = this::message,
     )
 
     init {
+        Os.hwpApp = { settings.state.value.let { it.hwpApp to it.ieumPath } }
+        Os.onNote = { message(it) }
+        // 한글·이음오피스 위치는 처음 한 번 찾아 둔다(레지스트리 조회라 화면을 멈추지 않게).
+        scope.launch(Dispatchers.IO) { DocApps.hancom() }
         nav.registerInnerBack(Dest.LAW) { lawSearch.back() }
         nav.registerInnerBack(Dest.DART) { dart.back() }
         nav.registerInnerBack(Dest.MANUAL) { libraryUi.backManual() }
@@ -182,7 +185,7 @@ class AppGraph {
     /** 매뉴얼·서식 파일 가져오기(한글이면 PDF 변환까지라 시간이 걸린다) */
     fun importFile(kind: String, file: File) {
         if (libraryUi.busy != null) return
-        libraryUi.busy = if (file.extension.lowercase() == "pdf") "PDF를 읽는 중…" else "한글로 PDF를 만드는 중…(1~3분)"
+        libraryUi.busy = if (file.extension.lowercase() == "pdf") "PDF를 읽는 중…" else "원본을 읽고 PDF를 만드는 중…(1~3분)"
         scope.launch {
             val r = runCatching { if (kind == "manual") library.importManual(file) else library.importForms(file) }
             libraryUi.busy = null
@@ -191,18 +194,18 @@ class AppGraph {
     }
 
     /**
-     * 서식을 원본 그대로 새 한글 파일로 만들어 연다(문서\FSS_Helper\서식).
-     * 한글 자동화로 그 서식 부분만 남긴 파일을 만들고, 안 되면 서식 전체 원본 사본을 연다.
+     * 서식을 원본 그대로 새 한글 파일로 만들어 연다(문서\FSS_Helper\서식). 여는 프로그램은 설정(한글/이음오피스)을 따른다.
+     * 한글이 있으면 한글 자동화로, 없으면 HWPX는 앱이 직접 그 서식 부분만 남기고, 안 되면 서식 전체 원본 사본을 연다.
      */
     fun writeForm(no: String) {
         scope.launch {
             val lib = library.data.value
             val form = FormCatalog.form(no)
             val src = File(lib.formsSrc)
-            if (lib.formsSrc.isBlank() || !src.isFile) { message("서식 한글 원본이 없습니다. '가져오기'로 서식 한글 파일을 넣어 주세요."); return@launch }
+            if (lib.formsSrc.isBlank() || !src.isFile) { message("서식 원본(HWP·HWPX)이 없습니다. '가져오기'로 서식 한글 파일을 넣어 주세요."); return@launch }
             val dir = DocFiles.formsDir
             val name = DocFiles.safe("제${no}호 ${form.name}".trim())
-            message("한글로 '${form.label.trim()}' 원본 서식을 만드는 중입니다…")
+            message("'${form.label.trim()}' 서식 파일을 만드는 중입니다…")
             val dest = when (val r = library.formOriginal(no, lib)) {
                 is Hancom.Result.Ok -> withContext(Dispatchers.IO) { DocFiles.unique(dir, "$name.${r.file.extension}").also { r.file.copyTo(it) } }
                     .also { message("'${it.name}'을(를) 문서\\FSS_Helper\\서식 폴더에 만들어 열었습니다.") }
@@ -280,7 +283,6 @@ private fun handleKey(e: KeyEvent, g: AppGraph): Boolean {
     return when {
         e.isAltPressed && e.key == Key.DirectionLeft -> g.nav.back()
         e.key == Key.Back -> g.nav.back()
-        e.isCtrlPressed && e.key == Key.B -> { g.settings.update { it.copy(sidebarCollapsed = !it.sidebarCollapsed) }; true }
         e.isCtrlPressed && e.key == Key.K -> { g.nav.go(Dest.LAW); true }
         e.isCtrlPressed && e.key in NUM_KEYS -> {
             Dest.entries.filter { !it.lower }.getOrNull(NUM_KEYS.indexOf(e.key))?.let { g.nav.go(it) }; true
@@ -294,7 +296,6 @@ private val NUM_KEYS = listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, K
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun Shell(g: AppGraph) {
-    val s by g.settings.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         for (m in g.messages) {
@@ -307,41 +308,78 @@ private fun Shell(g: AppGraph) {
             // 마우스 '뒤로' 버튼
             .onPointerEvent(PointerEventType.Press) { ev -> if (ev.button == PointerButton.Back) g.nav.back() },
     ) {
-        Row(Modifier.fillMaxSize()) {
-            Sidebar(g, s.sidebarCollapsed)
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                TopBar(g)
-                Box(Modifier.weight(1f).fillMaxWidth()) { Content(g) }
-            }
+        Column(Modifier.fillMaxSize()) {
+            TopBar(g)
+            Box(Modifier.weight(1f).fillMaxWidth()) { Content(g) }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp)) { Snackbar(it) }
     }
 }
 
-/** 이음오피스처럼 창 맨 위 옅은 띠에 지금 화면을 탭 모양으로 보여 준다. */
+/**
+ * 창 맨 위 한 줄: 뒤로 · 앱 이름 · 모든 메뉴 탭 · 설정/앱 정보.
+ * 탭은 글자만 두고 고른 탭만 색과 밑줄로 표시해 차분하게 보이게 한다. 창이 좁으면 짧은 이름으로 바꾸고 옆으로 밀어 볼 수 있다.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(g: AppGraph) {
     val update by g.update.state.collectAsState()
-    val d = g.nav.current
-    Row(
-        Modifier.fillMaxWidth().height(40.dp).background(MaterialTheme.colorScheme.surfaceContainer).padding(start = 6.dp, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = { g.nav.back() }, enabled = g.nav.canGoBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "뒤로 (Alt+←)", Modifier.size(17.dp))
+    val todo by g.todo.data.collectAsState()
+    val saved by g.dart.saved.collectAsState()
+    val hasUpdate = update is UpdateState.Available || update is UpdateState.Ready
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+        Row(Modifier.fillMaxWidth().height(54.dp).padding(start = 6.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { g.nav.back() }, enabled = g.nav.canGoBack) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "뒤로 (Alt+←)", Modifier.size(18.dp))
+            }
+            Image(painterResource("icons/app.png"), null, Modifier.size(22.dp).clip(RoundedCornerShape(5.dp)))
+            Text("FSS_Helper", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp, end = 18.dp))
+            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                val compact = maxWidth < 1040.dp
+                Row(Modifier.fillMaxHeight().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    var last: NavGroup? = null
+                    Dest.entries.filter { !it.lower }.forEachIndexed { i, d ->
+                        if (last != null && d.group != last) VerticalDivider(Modifier.height(14.dp).padding(horizontal = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        last = d.group
+                        val count = when (d) {
+                            Dest.TODO -> todo.items.count { !it.done }.takeIf { it > 0 }
+                            Dest.DART -> saved.newCount.values.sum().takeIf { it > 0 }
+                            else -> null
+                        }
+                        TopTab(if (compact) d.short else d.label, g.nav.current == d, count, "${d.label} (Ctrl+${i + 1})") { g.nav.go(d) }
+                    }
+                }
+            }
+            if (hasUpdate) TextButton(onClick = { g.nav.go(Dest.ABOUT) }) { Text("새 버전") }
+            Dest.entries.filter { it.lower }.forEach { d ->
+                val on = g.nav.current == d
+                TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), { PlainTooltip { Text(d.label) } }, rememberTooltipState()) {
+                    IconButton(onClick = { g.nav.go(d) }) {
+                        Icon(d.icon, d.label, Modifier.size(20.dp), tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
-        Row(
-            Modifier.align(Alignment.Bottom).clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)).background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 14.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TopTab(label: String, selected: Boolean, count: Int?, tip: String, onClick: () -> Unit) {
+    val fg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), { PlainTooltip { Text(tip) } }, rememberTooltipState()) {
+        Column(
+            Modifier.fillMaxHeight().width(IntrinsicSize.Max).clickable(onClick = onClick).padding(horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(d.icon, null, Modifier.size(15.dp), tint = if (d.group == NavGroup.HOME || d.lower) MaterialTheme.colorScheme.onSurfaceVariant else d.tint)
-            Text(d.label, style = MaterialTheme.typography.labelLarge)
-        }
-        Spacer(Modifier.weight(1f))
-        if (update is UpdateState.Available || update is UpdateState.Ready) {
-            TextButton(onClick = { g.nav.go(Dest.ABOUT) }) { Text("새 버전이 있습니다") }
+            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = fg, maxLines = 1)
+                if (count != null) Text(" $count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.fillMaxWidth().height(2.5.dp).clip(RoundedCornerShape(2.dp)).background(if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent))
         }
     }
 }
@@ -353,13 +391,11 @@ private fun Content(g: AppGraph) {
     when (current) {
         Dest.HOME -> {
             val todo by g.todo.data.collectAsState()
-            val lib by g.library.data.collectAsState()
             val saved by g.dart.saved.collectAsState()
+            // 카드에는 할 일·새 공시처럼 '지금 볼 것'만 짧게 표시한다.
             val badges = HomeBadges(buildMap {
-                todo.items.count { !it.done }.takeIf { it > 0 }?.let { put(Dest.TODO, "$it") }
-                lib.formNos.size.takeIf { it > 0 }?.let { put(Dest.FORMS, "${it}종") }
-                lib.manualToc.size.takeIf { it > 0 }?.let { put(Dest.MANUAL, "목차 $it") }
-                saved.newCount.values.sum().takeIf { it > 0 }?.let { put(Dest.DART, "새 공시 $it") }
+                todo.items.count { !it.done }.takeIf { it > 0 }?.let { put(Dest.TODO, "남은 일 ${it}개") }
+                saved.newCount.values.sum().takeIf { it > 0 }?.let { put(Dest.DART, "새 공시 ${it}건") }
             })
             HomeScreen(g.recents, badges, onTool = { g.nav.go(it) }, onRecent = g::openRecent)
         }
@@ -381,84 +417,5 @@ private fun Content(g: AppGraph) {
             KeyKind.DART -> KeyGuideDialog(kind, g.settings, g.settings.dartKey,
                 onSave = { g.settings.setDartKey(it); g.dart.ensureIndex(force = true); g.message("DART 인증키를 저장했습니다. 회사 목록을 받아 옵니다.") }, onTest = { testDart(g.dart) }, onDismiss = { g.keyGuide = null })
         }
-    }
-}
-
-/** 왼쪽 메뉴(접고 펼치기). 이음오피스처럼 옅은 회색 바탕, 고른 줄은 조금 더 짙은 회색. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun Sidebar(g: AppGraph, collapsed: Boolean) {
-    val width by animateDpAsState(if (collapsed) 64.dp else 236.dp)
-    val todo by g.todo.data.collectAsState()
-    val saved by g.dart.saved.collectAsState()
-    val recents by g.recents.data.collectAsState()
-    val update by g.update.state.collectAsState()
-    val openTodo = todo.items.count { !it.done }
-    val newFilings = saved.newCount.values.sum()
-    Column(Modifier.width(width).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainer).padding(vertical = 12.dp, horizontal = 10.dp)) {
-        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (!collapsed) {
-                Image(painterResource("icons/app.png"), null, Modifier.padding(start = 6.dp).size(26.dp).clip(RoundedCornerShape(6.dp)))
-                Text("FSS_Helper", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
-                Box(Modifier.padding(start = 6.dp).border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(50)).padding(horizontal = 6.dp)) {
-                    Text("v${BuildInfo.VERSION}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(Modifier.weight(1f))
-            }
-            IconButton(onClick = { g.settings.update { it.copy(sidebarCollapsed = !collapsed) } }, modifier = if (collapsed) Modifier.fillMaxWidth() else Modifier) {
-                Icon(if (collapsed) Icons.Outlined.Menu else Icons.Outlined.MenuOpen, if (collapsed) "메뉴 펼치기 (Ctrl+B)" else "메뉴 접기 (Ctrl+B)", Modifier.size(20.dp))
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        var lastGroup: NavGroup? = null
-        Dest.entries.filter { !it.lower }.forEachIndexed { i, d ->
-            if (d.group != lastGroup && d.group.title.isNotBlank()) {
-                if (collapsed) androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                else Text(d.group.title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 4.dp))
-            }
-            lastGroup = d.group
-            val count = when (d) {
-                Dest.HOME -> recents.items.size.takeIf { it > 0 }?.toString()
-                Dest.TODO -> openTodo.takeIf { it > 0 }?.toString()
-                Dest.DART -> newFilings.takeIf { it > 0 }?.toString()
-                else -> null
-            }
-            NavItem(d, g.nav.current == d, collapsed, count, "Ctrl+${i + 1}") { g.nav.go(d) }
-        }
-        Spacer(Modifier.weight(1f))
-        androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
-        Dest.entries.filter { it.lower }.forEach { d ->
-            val badge = if (d == Dest.ABOUT && (update is UpdateState.Available || update is UpdateState.Ready)) "N" else null
-            NavItem(d, g.nav.current == d, collapsed, badge, null) { g.nav.go(d) }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NavItem(d: Dest, selected: Boolean, collapsed: Boolean, count: String?, shortcut: String?, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else androidx.compose.ui.graphics.Color.Transparent
-    val fg = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    val item = @Composable {
-        Row(
-            Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(8.dp)).background(bg).clickable(onClick = onClick).padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (collapsed) Arrangement.Center else Arrangement.Start,
-        ) {
-            Box {
-                Icon(d.icon, d.label, Modifier.size(19.dp), tint = if (selected && d.group != NavGroup.HOME && !d.lower) d.tint else fg)
-                if (collapsed && count != null) Badge(Modifier.align(Alignment.TopEnd).padding(start = 12.dp)) { Text(count) }
-            }
-            if (!collapsed) {
-                Text(d.label, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (count != null) Text(count, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-    Surface(color = androidx.compose.ui.graphics.Color.Transparent, modifier = Modifier.padding(vertical = 1.dp)) {
-        if (collapsed) {
-            TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), { PlainTooltip { Text(if (shortcut != null) "${d.label} ($shortcut)" else d.label) } }, rememberTooltipState()) { item() }
-        } else item()
     }
 }

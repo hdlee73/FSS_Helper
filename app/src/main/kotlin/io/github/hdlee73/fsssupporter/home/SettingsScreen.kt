@@ -1,5 +1,8 @@
 package io.github.hdlee73.fsssupporter.home
 
+import io.github.hdlee73.fsssupporter.ui.pickFile
+import io.github.hdlee73.fsssupporter.data.HwpApp
+import io.github.hdlee73.fsssupporter.data.DocApps
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -115,11 +118,9 @@ fun SettingsScreen(settings: SettingsRepo, law: LawModule, dart: DartModel, pref
                         FilterChip(s.theme == m, { settings.update { it.copy(theme = m) } }, label = { Text(label) })
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("왼쪽 메뉴 접기 (Ctrl+B)", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Switch(s.sidebarCollapsed, { v -> settings.update { it.copy(sidebarCollapsed = v) } })
-                }
             }
+
+            HwpAppCard(settings, onMessage)
 
             AppCard(Modifier.fillMaxWidth()) {
                 CardTitle("업데이트")
@@ -185,5 +186,37 @@ private fun KeyTransferCard(settings: SettingsRepo, onMessage: (String) -> Unit)
                 }
             }) { Text("파일에서 불러오기") }
         }
+    }
+}
+
+/** 한글 문서(HWP·HWPX)를 열 프로그램: 한컴오피스 한글 또는 이음오피스 */
+@Composable
+private fun HwpAppCard(settings: SettingsRepo, onMessage: (String) -> Unit) {
+    val s by settings.state.collectAsState()
+    var tick by remember { mutableStateOf(0) }
+    val ieum = remember(tick, s.ieumPath) { DocApps.ieum(s.ieumPath) }
+    val hancom = remember(tick) { DocApps.hancom() }
+    AppCard(Modifier.fillMaxWidth()) {
+        CardTitle("한글 문서(HWP·HWPX) 열기")
+        Text("서식을 작성하거나 한글 파일을 열 때 쓸 프로그램입니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            HwpApp.entries.forEach { a -> FilterChip(s.hwpApp == a, { settings.update { it.copy(hwpApp = a) } }, label = { Text(a.label) }) }
+        }
+        Text(s.hwpApp.desc, style = MaterialTheme.typography.bodySmall)
+        Text(
+            "한컴오피스 한글: " + (hancom?.absolutePath ?: "찾지 못함") + "\n이음오피스: " + (ieum?.absolutePath ?: "찾지 못함"),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                pickFile("IeumOffice.exe 고르기") { it.endsWith(".exe") }?.let { f ->
+                    if (f.name.lowercase().startsWith("ieumoffice")) { settings.update { it.copy(ieumPath = f.absolutePath, hwpApp = HwpApp.IEUM) }; onMessage("이음오피스 위치를 저장했습니다.") }
+                    else onMessage("IeumOffice.exe 파일을 골라 주세요.")
+                }
+            }) { Text("이음오피스 위치 지정") }
+            OutlinedButton(onClick = { DocApps.rescan(); tick++ }) { Text("다시 찾기") }
+            if (s.ieumPath.isNotBlank()) TextButton(onClick = { settings.update { it.copy(ieumPath = "") } }) { Text("지정 위치 지우기") }
+        }
+        InfoBox("서식 나누기(그 서식만 남긴 파일 만들기)와 PDF 자동 변환은 한글이 있으면 한글이 합니다. 한글 없이 이음오피스만 있으면 HWPX 서식은 앱이 직접 나누고, HWP 서식은 전체 원본을 열어 드립니다. 원본 보기용 PDF는 이음오피스에서 'PDF로 저장'한 파일을 'PDF 지정'으로 넣어 주세요.")
     }
 }

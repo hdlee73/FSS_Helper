@@ -4,6 +4,7 @@ import io.github.hdlee73.fsssupporter.data.AppDirs
 import io.github.hdlee73.fsssupporter.data.HBlock
 import io.github.hdlee73.fsssupporter.data.HPara
 import io.github.hdlee73.fsssupporter.data.Hancom
+import io.github.hdlee73.fsssupporter.data.HwpxCut
 import io.github.hdlee73.fsssupporter.data.HwpText
 import io.github.hdlee73.fsssupporter.data.JsonFile
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +34,7 @@ data class PageSpan(val start: Int, val end: Int) {
 }
 
 /**
- * 가져온 검사매뉴얼·검사관련 서식(이 PC의 앱 데이터 폴더에만 둔다).
+ * 가져온 검사품질관리 매뉴얼·검사관련 서식(이 PC의 앱 데이터 폴더에만 둔다).
  * 보기는 PDF(원본 모양 그대로), 서식 작성은 한글 원본에서 그 서식만 잘라 낸 한글 파일로 한다.
  */
 @Serializable
@@ -79,7 +80,7 @@ class LibraryStore(private val dir: File = File(AppDirs.root, "library")) {
     fun pageTexts(kind: String): List<String> =
         runCatching { pagesFile(kind).readText(Charsets.UTF_8).split('\u000C') }.getOrDefault(emptyList())
 
-    // ---------- 검사매뉴얼 ----------
+    // ---------- 검사품질관리 매뉴얼 ----------
 
     /** 한글(HWP·HWPX)이면 한글로 PDF를 만들고, PDF면 그대로 쓴다. */
     suspend fun importManual(file: File): ImportResult = withContext(Dispatchers.IO) {
@@ -91,7 +92,7 @@ class LibraryStore(private val dir: File = File(AppDirs.root, "library")) {
                 val texts = indexPdf(pdf, "manual")
                 val toc = mapToc(titles, texts).ifEmpty { outlineToc(pdf) }
                 save { it.copy(manualPdf = pdf.absolutePath, manualToc = toc, manualName = it.manualName.ifBlank { file.name }, importedAt = now()) }
-                ImportResult("검사매뉴얼 PDF를 가져왔습니다(${texts.size}쪽, 목차 ${toc.size}개).")
+                ImportResult("검사품질관리 매뉴얼 PDF를 가져왔습니다(${texts.size}쪽, 목차 ${toc.size}개).")
             }
             "hwp", "hwpx" -> {
                 val src = copyAs(file, "manual." + file.extension.lowercase())
@@ -103,11 +104,11 @@ class LibraryStore(private val dir: File = File(AppDirs.root, "library")) {
                         val texts = indexPdf(pdf, "manual")
                         val toc = mapToc(titles, texts).ifEmpty { outlineToc(pdf) }
                         save { it.copy(manualPdf = pdf.absolutePath, manualToc = toc) }
-                        ImportResult("검사매뉴얼을 가져왔습니다(${texts.size}쪽, 목차 ${toc.size}개).")
+                        ImportResult("검사품질관리 매뉴얼을 가져왔습니다(${texts.size}쪽, 목차 ${toc.size}개).")
                     }
                     is Hancom.Result.Failed -> {
                         save { it.copy(manualPdf = "", manualToc = emptyList()) }
-                        ImportResult("한글 원본은 저장했지만 PDF로 바꾸지 못했습니다. ${r.message} 한글에서 PDF로 저장한 파일을 'PDF 지정'으로 넣어 주세요.", pdfMissing = true)
+                        ImportResult("한글 원본은 저장했지만 PDF로 바꾸지 못했습니다. ${pdfHint(r)} 한글이나 이음오피스에서 PDF로 저장(인쇄 → PDF)한 파일을 'PDF 지정'으로 넣어 주세요.", pdfMissing = true)
                     }
                 }
             }
@@ -143,13 +144,15 @@ class LibraryStore(private val dir: File = File(AppDirs.root, "library")) {
                     }
                     is Hancom.Result.Failed -> {
                         save { it.copy(formsPdf = "", formPages = emptyMap()) }
-                        ImportResult("한글 원본은 저장해 서식 작성은 됩니다. 다만 PDF로 바꾸지 못해 원본 보기가 안 됩니다. ${r.message} 한글에서 PDF로 저장한 파일을 'PDF 지정'으로 넣어 주세요.", pdfMissing = true)
+                        ImportResult("한글 원본은 저장해 서식 작성은 됩니다. 다만 PDF로 바꾸지 못해 원본 보기가 안 됩니다. ${pdfHint(r)} 한글이나 이음오피스에서 PDF로 저장(인쇄 → PDF)한 파일을 'PDF 지정'으로 넣어 주세요.", pdfMissing = true)
                     }
                 }
             }
             else -> throw IllegalArgumentException("한글(HWP·HWPX) 또는 PDF 파일을 골라 주세요.")
         }
     }
+
+    private fun pdfHint(r: Hancom.Result.Failed) = if (r.noHancom) "PDF 자동 변환은 한컴오피스 한글이 있어야 합니다." else r.message
 
     /** 원본 서식 파일에서 [no] 서식 부분만 남긴 한글 파일(앱 데이터 폴더에 한 번 만들어 두고 다시 쓴다) */
     suspend fun formOriginal(no: String, lib: LibraryData = _data.value): Hancom.Result {
@@ -158,7 +161,11 @@ class LibraryStore(private val dir: File = File(AppDirs.root, "library")) {
         val range = formRange(lib.formMarks, no) ?: return Hancom.Result.Failed("제${no}호 서식 표시를 원본에서 찾지 못했습니다.")
         val out = File(dir, "cut/제${no}호.${src.extension.lowercase()}")
         if (out.isFile && out.lastModified() >= src.lastModified() && out.length() > 0) return Hancom.Result.Ok(out)
-        return Hancom.extract(src, out, range.first, range.second)
+        // 한글이 있으면 한글이 직접 자르고, 없으면(이음오피스만 있는 PC) HWPX는 앱이 직접 자른다.
+        val r = Hancom.extract(src, out, range.first, range.second)
+        if (r is Hancom.Result.Failed && r.noHancom && src.extension.lowercase() == "hwpx") return withContext(Dispatchers.IO) { HwpxCut.cut(src, out, range.first, range.second) }
+        if (r is Hancom.Result.Failed && r.noHancom) return Hancom.Result.Failed("한글이 없어 HWP 서식을 나누지 못했습니다(HWPX 원본이면 한글 없이도 나눌 수 있습니다).", noHancom = true)
+        return r
     }
 
     fun clear(kind: String) {

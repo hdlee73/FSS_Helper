@@ -160,12 +160,12 @@ fun SearchField(
 @Composable
 fun ScreenHeader(title: String, subtitle: String? = null, actions: @Composable (() -> Unit)? = null) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 18.dp, bottom = 10.dp),
+        Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 20.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         actions?.invoke()
@@ -212,8 +212,15 @@ object Os {
         runCatching { Desktop.getDesktop().browse(URI(url)) }
     }
 
+    /** 한글 문서를 열 프로그램(설정)과, 고른 프로그램이 없어 다른 것으로 열었을 때 알릴 곳. 앱이 시작할 때 채운다. */
+    var hwpApp: () -> Pair<io.github.hdlee73.fsssupporter.data.HwpApp, String> = { io.github.hdlee73.fsssupporter.data.HwpApp.AUTO to "" }
+    var onNote: (String) -> Unit = {}
+
+    /** 파일·폴더를 연다. HWP·HWPX는 설정에서 고른 한글/이음오피스로 연다. */
     fun open(file: java.io.File) {
-        runCatching { Desktop.getDesktop().open(file) }
+        if (!file.isFile) { runCatching { Desktop.getDesktop().open(file) }; return }
+        val (app, path) = hwpApp()
+        io.github.hdlee73.fsssupporter.data.DocApps.open(file, app, path)?.let(onNote)
     }
 
     val isArm: Boolean get() = System.getProperty("os.arch").orEmpty().lowercase().let { it.contains("aarch64") || it.contains("arm64") }

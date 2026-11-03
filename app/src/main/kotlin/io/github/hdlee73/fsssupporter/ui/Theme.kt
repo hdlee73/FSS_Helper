@@ -18,28 +18,27 @@ import androidx.compose.ui.unit.sp
 import io.github.hdlee73.fsssupporter.data.ThemeMode
 
 /**
- * 이음오피스 느낌: 흰 바탕, 아주 옅은 회색 메뉴, 1px 테두리 카드, 남색(인디고) 강조.
- * 도구마다 고유 색(아이콘)을 두고 나머지는 무채색으로 차분하게 둔다.
+ * 산뜻하고 차분하게: 흰 바탕, 1px 테두리, 강조색은 맑은 파랑 한 가지만 쓰고 나머지는 무채색.
  */
 private val Light = lightColorScheme(
-    primary = Color(0xFF4338CA),
+    primary = Color(0xFF2B5CE6),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFECEBFD),
-    onPrimaryContainer = Color(0xFF2B2489),
-    secondary = Color(0xFF5D5B7C),
+    primaryContainer = Color(0xFFE9EFFD),
+    onPrimaryContainer = Color(0xFF173A99),
+    secondary = Color(0xFF5B6275),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFEEEFF4),
-    onSecondaryContainer = Color(0xFF1B1840),
+    onSecondaryContainer = Color(0xFF1A2033),
     tertiary = Color(0xFFE89400),
     onTertiary = Color.White,
     tertiaryContainer = Color(0xFFFFF1D6),
     onTertiaryContainer = Color(0xFF6B4300),
     background = Color(0xFFFFFFFF),
-    onBackground = Color(0xFF1B1B22),
+    onBackground = Color(0xFF191C23),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF1B1B22),
+    onSurface = Color(0xFF191C23),
     surfaceVariant = Color(0xFFF4F5F8),
-    onSurfaceVariant = Color(0xFF6B6D7A),
+    onSurfaceVariant = Color(0xFF656B78),
     surfaceContainer = Color(0xFFF7F8FA),
     surfaceContainerHigh = Color(0xFFECEEF3),
     surfaceContainerLow = Color(0xFFFAFAFC),
@@ -52,10 +51,10 @@ private val Light = lightColorScheme(
 )
 
 private val Dark = darkColorScheme(
-    primary = Color(0xFFA5A0FF),
-    onPrimary = Color(0xFF1C1766),
-    primaryContainer = Color(0xFF2B2760),
-    onPrimaryContainer = Color(0xFFE2E0FF),
+    primary = Color(0xFF9DB7FF),
+    onPrimary = Color(0xFF0E2A70),
+    primaryContainer = Color(0xFF1E3366),
+    onPrimaryContainer = Color(0xFFDDE6FF),
     secondary = Color(0xFFB4B3CC),
     onSecondary = Color(0xFF1B1840),
     secondaryContainer = Color(0xFF2A2B33),

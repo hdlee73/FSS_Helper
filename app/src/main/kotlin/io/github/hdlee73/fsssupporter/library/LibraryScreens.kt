@@ -100,7 +100,7 @@ class LibraryActions(
 private val HWP_OR_PDF: (String) -> Boolean = { it.endsWith(".hwp") || it.endsWith(".hwpx") || it.endsWith(".pdf") }
 private fun dateLabel(t: Long) = if (t <= 0) "" else SimpleDateFormat("yyyy.MM.dd HH:mm").format(Date(t))
 
-// ───────────────────────────── 검사매뉴얼
+// ───────────────────────────── 검사품질관리 매뉴얼
 
 @Composable
 fun ManualScreen(store: LibraryStore, ui: LibraryUi, actions: LibraryActions) {
@@ -109,28 +109,28 @@ fun ManualScreen(store: LibraryStore, ui: LibraryUi, actions: LibraryActions) {
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(
-            "검사매뉴얼",
+            "검사품질관리 매뉴얼",
             subtitle = if (lib.hasManual) "${lib.manualName} · ${doc?.pageCount ?: 0}쪽 · ${dateLabel(lib.importedAt)} 가져옴" else "가져온 매뉴얼을 원본 모양(PDF) 그대로 보여 줍니다.",
         ) {
             ui.busy?.let { BusyLabel(it) }
             if (lib.manualSrc.isNotBlank() && File(lib.manualSrc).isFile) {
-                TextButton(onClick = { Os.open(File(lib.manualSrc)) }) { Text("한글 원본 열기") }
+                TextButton(onClick = { Os.open(File(lib.manualSrc)) }) { Text("원본 열기") }
             }
             if (lib.manualSrc.isNotBlank() && !lib.hasManual) {
                 TextButton(onClick = { pickFile("매뉴얼 PDF 지정") { it.endsWith(".pdf") }?.let { actions.importFile("manual", it) } }) { Text("PDF 지정") }
             }
-            OutlinedButton(onClick = { pickFile("검사매뉴얼 가져오기(HWP·HWPX·PDF)", HWP_OR_PDF)?.let { actions.importFile("manual", it) } }) {
+            OutlinedButton(onClick = { pickFile("검사품질관리 매뉴얼 가져오기(HWP·HWPX·PDF)", HWP_OR_PDF)?.let { actions.importFile("manual", it) } }) {
                 Text(if (lib.hasManual) "다시 가져오기" else "가져오기")
             }
         }
         if (!lib.hasManual || doc == null) {
             ImportGuide(
                 icon = Icons.Outlined.MenuBook,
-                title = if (lib.manualSrc.isNotBlank()) "매뉴얼 PDF가 아직 없습니다" else "검사매뉴얼을 가져오세요",
+                title = if (lib.manualSrc.isNotBlank()) "매뉴얼 PDF가 아직 없습니다" else "검사품질관리 매뉴얼을 가져오세요",
                 body = "검사품질관리 매뉴얼 한글 파일(HWP·HWPX)을 고르면 이 PC의 한글이 PDF로 바꿔 원본 모양 그대로 보여 줍니다. " +
-                    "한글이 없거나 변환이 안 되면 한글에서 'PDF로 저장'한 파일을 바로 가져와도 됩니다. 파일은 이 PC의 앱 데이터 폴더에만 둡니다.",
+                    "한글이 없거나 변환이 안 되면 한글이나 이음오피스에서 'PDF로 저장'한 파일을 가져오세요. 파일은 이 PC의 앱 데이터 폴더에만 둡니다.",
                 busy = ui.busy,
-                onPick = { pickFile("검사매뉴얼 가져오기(HWP·HWPX·PDF)", HWP_OR_PDF)?.let { actions.importFile("manual", it) } },
+                onPick = { pickFile("검사품질관리 매뉴얼 가져오기(HWP·HWPX·PDF)", HWP_OR_PDF)?.let { actions.importFile("manual", it) } },
             )
             return@Column
         }
@@ -183,7 +183,7 @@ fun FormsScreen(store: LibraryStore, ui: LibraryUi, actions: LibraryActions) {
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(
             "검사관련 서식",
-            subtitle = if (lib.formNos.isNotEmpty()) "${lib.formsName} · 서식 ${lib.formNos.size}종 · 원본 보기는 PDF, 작성은 한글 파일" else "원본 모양 그대로 보고, 필요한 서식만 떼어 한글로 작성합니다.",
+            subtitle = if (lib.formNos.isNotEmpty()) "${lib.formsName} · 서식 ${lib.formNos.size}종 · 원본 보기는 PDF, 작성은 HWP·HWPX" else "원본 모양 그대로 보고, 필요한 서식만 떼어 작성합니다.",
         ) {
             ui.busy?.let { BusyLabel(it) }
             if (lib.formsSrc.isNotBlank() && !lib.hasForms) {
@@ -201,7 +201,7 @@ fun FormsScreen(store: LibraryStore, ui: LibraryUi, actions: LibraryActions) {
                 icon = Icons.Outlined.Description,
                 title = "검사관련 서식을 가져오세요",
                 body = "'< 제1-1호 서식 >' 표시가 들어 있는 서식 한글 파일(HWP·HWPX)을 고르면, 원본 보기용 PDF를 만들고 " +
-                    "서식마다 원본에서 그 부분만 떼어 한글 파일로 작성할 수 있게 합니다. PDF만 넣으면 보기만 됩니다.",
+                    "서식마다 원본에서 그 부분만 떼어 한글 또는 이음오피스로 작성할 수 있게 합니다(설정에서 고름). PDF만 넣으면 보기만 됩니다.",
                 busy = ui.busy,
                 onPick = { pickFile("검사관련 서식 가져오기(HWP·HWPX·PDF)", HWP_OR_PDF)?.let { actions.importFile("forms", it) } },
             )
@@ -218,11 +218,14 @@ fun FormsScreen(store: LibraryStore, ui: LibraryUi, actions: LibraryActions) {
                 Box(Modifier.weight(1f)) {
                     LazyColumn(state = listState, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                         var lastGroup = ""
+                        fun groupOf(r: FormRef) = r.group.ifBlank { "제${r.no.substringBefore('-')}장" }
+                        val counts = forms.groupingBy(::groupOf).eachCount()
                         forms.forEach { r ->
-                            val g = r.group.ifBlank { "제${r.no.substringBefore('-')}장" }
+                            val g = groupOf(r)
                             if (g != lastGroup) {
+                                val first = lastGroup.isEmpty()
                                 lastGroup = g
-                                item(key = "g:$g:${r.no}") { Text(g, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 2.dp)) }
+                                item(key = "g:$g:${r.no}") { GroupHeader(g, counts[g] ?: 0, first) }
                             }
                             item(key = r.no) {
                                 FormRow(r, ui.formNo == r.no) { ui.formNo = r.no; actions.openedForm(r.no) }
@@ -238,7 +241,7 @@ fun FormsScreen(store: LibraryStore, ui: LibraryUi, actions: LibraryActions) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.Outlined.Description, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.outline)
                         Text("왼쪽에서 서식을 고르세요", style = MaterialTheme.typography.titleSmall)
-                        Text("원본 모양을 보고 '한글로 작성'을 누르면 그 서식만 떼어 새 한글 파일로 엽니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("원본 모양을 보고 '서식 작성'을 누르면 그 서식만 떼어 한글 또는 이음오피스로 엽니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (!lib.hasForms) InfoBox("원본 보기용 PDF가 없습니다. 위 'PDF 지정'으로 넣어 주세요.", Modifier.widthIn(max = 420.dp).padding(top = 8.dp))
                     }
                 }
@@ -256,14 +259,14 @@ fun FormsScreen(store: LibraryStore, ui: LibraryUi, actions: LibraryActions) {
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Button(onClick = { actions.writeForm(no) }, enabled = lib.canWriteForms) {
-                            Icon(Icons.Outlined.EditNote, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("한글로 작성")
+                            Icon(Icons.Outlined.EditNote, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("서식 작성")
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     when {
                         doc != null && span != null -> PdfPages(doc, span.pages, ui.formViewer, Modifier.fillMaxSize())
                         doc != null -> Box(Modifier.fillMaxSize().padding(24.dp)) { InfoBox("PDF에서 '< 제${no}호 서식 >' 표시를 찾지 못했습니다. 서식 전체 원본에서 찾아보세요.") }
-                        else -> Box(Modifier.fillMaxSize().padding(24.dp)) { InfoBox("원본 보기용 PDF가 없습니다. 위 'PDF 지정'으로 한글에서 PDF로 저장한 서식 파일을 넣어 주세요. 한글로 작성은 지금도 됩니다.") }
+                        else -> Box(Modifier.fillMaxSize().padding(24.dp)) { InfoBox("원본 보기용 PDF가 없습니다. 위 'PDF 지정'으로 한글이나 이음오피스에서 PDF로 저장한 서식 파일을 넣어 주세요. 서식 작성은 지금도 됩니다.") }
                     }
                 }
             }
@@ -288,6 +291,20 @@ private fun ListRow(title: String, sub: String, twoLine: Boolean = false, onClic
     ) {
         Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (twoLine) 3 else 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** 서식 묶음 제목(상시감시·검사준비·현장검사 …): 크고 굵게, 앞에 색 막대 */
+@Composable
+private fun GroupHeader(title: String, count: Int, first: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 6.dp, end = 8.dp, top = if (first) 6.dp else 18.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(3.dp).height(16.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 8.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("$count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -331,7 +348,7 @@ private fun ImportGuide(icon: androidx.compose.ui.graphics.vector.ImageVector, t
                 }
                 if (busy != null) BusyLabel(busy)
                 Spacer(Modifier.height(4.dp))
-                Text("처음 한글을 쓸 때 '파일 접근 허용' 창이 뜨면 '모두 허용'을 눌러 주세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                Text("한글을 쓰는 PC에서 처음 '파일 접근 허용' 창이 뜨면 '모두 허용'을 눌러 주세요. 한글 대신 이음오피스를 쓰려면 설정에서 고르세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
     }
