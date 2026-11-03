@@ -1,0 +1,99 @@
+name: build
+
+# PR·푸시마다 테스트하고, Windows x64/ARM64 설치 파일(Setup.exe)을 테스트용 아티팩트로 만든다.
+# 릴리스(배포)는 release.yml 에서만, 저장소 주인이 태그를 올렸을 때만 한다.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew test --no-daemon
+
+  app:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            os: windows-latest
+          - arch: arm64
+            os: windows-11-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Version
+        shell: bash
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ]; then V="$(grep '^appVersion=' gradle.properties | cut -d= -f2)"; fi
+          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+      - name: App image
+        shell: bash
+        run: ./gradlew :app:createDistributable -PappVersion="$APP_VERSION" --no-daemon
+      - name: Check runtime arch
+        shell: pwsh
+        run: |
+          $exe = "app/build/compose/binaries/main/app/FSS_Helper/runtime/bin/java.dll"
+          $b = [IO.File]::ReadAllBytes($exe); $pe = [BitConverter]::ToInt32($b, 0x3C); $m = [BitConverter]::ToUInt16($b, $pe + 4)
+          $want = if ("${{ matrix.arch }}" -eq "arm64") { 0xAA64 } else { 0x8664 }
+          if ($m -ne $want) { throw ("런타임 아키텍처 불일치: 0x{0:X}" -f $m) }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: app/build/compose/binaries/main/app/FSS_Helper
+          retention-days: 3
+
+  setup:
+    needs: app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: images
+      - name: Version
+        shell: bash
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ]; then V="$(grep '^appVersion=' gradle.properties | cut -d= -f2)"; fi
+          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          foreach ($a in @("x64", "arm64")) {
+            & $iscc "/DAppVersion=$env:APP_VERSION" "/DArch=$a" "/DSourceDir=$pwd\images\image-$a" "/DOutputDir=$pwd\dist" installer\FSS_Helper.iss
+            if ($LASTEXITCODE -ne 0) { throw "ISCC 실패 ($a)" }
+          }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FSS_Helper-setup
+          path: dist/*.exe
+          retention-days: 14

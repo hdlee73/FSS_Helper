@@ -1,0 +1,74 @@
+name: release
+
+# 저장소 주인이 v* 태그를 올렸을 때만 배포한다. 업데이트 정보(latest.json)는
+# GitHub Secret UPDATE_SIGNING_KEY(개인키)로 서명하므로, 포크·타인은 앱이 받아들이는 업데이트를 만들 수 없다.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: Owner only
+        if: github.actor != github.repository_owner
+        run: |
+          echo "저장소 주인만 배포할 수 있습니다 (actor: ${{ github.actor }})"; exit 1
+      - id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: guard
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.guard.outputs.version }}
+
+  publish:
+    needs: [guard, build]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: FSS_Helper-setup
+          path: dist
+      - name: Sign manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${UPDATE_SIGNING_KEY}" ]; then echo "UPDATE_SIGNING_KEY 시크릿이 없습니다."; exit 1; fi
+          cd dist
+          asset() { f="FSS_Helper-${VERSION}-$1-Setup.exe"; printf '"%s":{"name":"%s","sha256":"%s","size":%s}' "$1" "$f" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")"; }
+          printf '{"version":"%s","published":"%s","notes":"%s","assets":{%s,%s}}' \
+            "$VERSION" "$(date -u +%Y-%m-%d)" "FSS_Helper ${VERSION}" "$(asset x64)" "$(asset arm64)" > latest.json
+          umask 077
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > /tmp/key.pem
+          openssl pkeyutl -sign -inkey /tmp/key.pem -rawin -in latest.json -out sig.bin
+          base64 -w0 sig.bin > latest.json.sig
+          # 앱에 내장된 공개키와 짝이 맞는지 확인
+          openssl pkey -in /tmp/key.pem -pubout -outform DER | base64 -w0 > pub.txt
+          rm -f /tmp/key.pem sig.bin
+          cat latest.json; echo; echo "pub: $(cat pub.txt)"
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - name: Public key matches app
+        run: |
+          grep -q "$(cat dist/pub.txt)" src/app/src/main/kotlin/io/github/hdlee73/fsssupporter/update/UpdateKey.kt \
+            || { echo "서명키가 앱에 내장된 공개키와 다릅니다."; exit 1; }
+          rm dist/pub.txt
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.exe dist/latest.json dist/latest.json.sig \
+            -R "${GITHUB_REPOSITORY}" --title "FSS_Helper ${GITHUB_REF_NAME}" --generate-notes
