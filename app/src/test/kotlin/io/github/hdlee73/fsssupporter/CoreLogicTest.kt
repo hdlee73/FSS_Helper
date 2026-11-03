@@ -1,68 +1,45 @@
 package io.github.hdlee73.fsssupporter
 
-import io.github.hdlee73.fsssupporter.opinion.CitationVerifier
-import io.github.hdlee73.fsssupporter.opinion.OpinionModel
-import io.github.hdlee73.fsssupporter.sanction.FineInput
-import io.github.hdlee73.fsssupporter.sanction.FineProfile
-import io.github.hdlee73.fsssupporter.sanction.Factor
-import io.github.hdlee73.fsssupporter.sanction.Grade
-import io.github.hdlee73.fsssupporter.sanction.SanctionCalc
-import io.github.hdlee73.fsssupporter.sanction.SanctionStore
+import io.github.hdlee73.fsssupporter.criteria.Calc
+import io.github.hdlee73.fsssupporter.criteria.FineCriteria
+import io.github.hdlee73.fsssupporter.criteria.FineInput
+import io.github.hdlee73.fsssupporter.criteria.LevelCriteria
+import io.github.hdlee73.fsssupporter.criteria.PenaltyCriteria
+import io.github.hdlee73.fsssupporter.criteria.PenaltyInput
+import io.github.hdlee73.fsssupporter.criteria.koreanWon
+import io.github.hdlee73.fsssupporter.data.HCell
+import io.github.hdlee73.fsssupporter.data.HPara
+import io.github.hdlee73.fsssupporter.data.HTable
+import io.github.hdlee73.fsssupporter.data.Hancom
+import io.github.hdlee73.fsssupporter.data.HwpText
+import io.github.hdlee73.fsssupporter.data.KeyFile
+import io.github.hdlee73.fsssupporter.library.FormCatalog
+import io.github.hdlee73.fsssupporter.library.FormMark
+import io.github.hdlee73.fsssupporter.library.LibraryStore
+import io.github.hdlee73.fsssupporter.library.PageSpan
+import io.github.hdlee73.fsssupporter.library.TocEntry
+import io.github.hdlee73.fsssupporter.todo.parseDue
 import io.github.hdlee73.fsssupporter.update.Updater
-import com.hdlee73.everylaw.core.domain.HwpxParagraph
+import java.io.File
 import java.security.KeyPairGenerator
 import java.security.Signature
+import java.time.LocalDate
 import java.util.Base64
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CoreLogicTest {
-    private val profile = FineProfile(
-        id = "t", name = "테스트", statutoryMax = 100_000_000,
-        grades = listOf(Grade("중대", 50.0)),
-        aggravations = listOf(Factor("a1", "반복", 30.0), Factor("a2", "은폐", 30.0)),
-        mitigations = listOf(Factor("m1", "자진", 20.0)),
-        aggravationCap = 50.0, mitigationCap = 50.0, roundUnit = 10_000,
-    )
-
-    @Test fun fineAppliesAggravationThenMitigationWithCap() {
-        val r = SanctionCalc.fine(profile, FineInput(gradeIndex = 0, aggravations = setOf("a1", "a2"), mitigations = setOf("m1")))
-        assertEquals(50_000_000, r.base)
-        assertEquals(50.0, r.aggravationPercent)
-        assertTrue(r.aggravationCapped)
-        assertEquals(75_000_000, r.afterAggravation)
-        assertEquals(60_000_000, r.final)
-    }
-
-    @Test fun fineUsesViolationAmountAndStatutoryLimit() {
-        val r = SanctionCalc.fine(profile, FineInput(violationAmount = 300_000_000, gradeIndex = 0, aggravations = setOf("a1")))
-        assertEquals(150_000_000, r.base)
-        assertTrue(r.limited)
-        assertEquals(100_000_000, r.final)
-    }
-
-    @Test fun fineRoundsDown() {
-        val r = SanctionCalc.fine(profile, FineInput(directBase = 12_345_678))
-        assertEquals(12_340_000, r.final)
-    }
-
-    @Test fun levelMovesWithinRange() {
-        val p = SanctionStore.BUILT_IN_LEVELS.first()
-        val r = SanctionCalc.level(p, 2, setOf("agg-repeat"), setOf("mit-self", "mit-coop", "mit-repair"))
-        // 가중 1단계, 감경 3단계 → 상한 2단계 → 순 1단계 가볍게
-        assertEquals(p.levels[3], r.final)
-        val top = SanctionCalc.level(p, 0, setOf("agg-repeat"), emptySet())
-        assertTrue(top.clipped)
-        assertEquals(p.levels[0], top.final)
-    }
-
     @Test fun versionCompare() {
         assertTrue(Updater.compareVersions("0.1.10", "0.1.9") > 0)
         assertEquals(0, Updater.compareVersions("v1.0", "1.0.0"))
         assertTrue(Updater.compareVersions("1.0.0", "1.0.1-beta") < 0)
     }
+
 
     @Test fun signatureVerification() {
         val kp = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
@@ -76,46 +53,182 @@ class CoreLogicTest {
         assertEquals(64, Updater.decodeSignature(Base64.getEncoder().encode(sig)).size)
     }
 
-    @Test fun splitLevelAndParagraphs() {
-        assertEquals("자본시장법" to "시행령", CitationVerifier.splitLevel("자본시장법 시행령"))
-        assertEquals("은행법" to null, CitationVerifier.splitLevel("은행법"))
-        val ps = OpinionModel.toParagraphs("검 사 서\n\nⅠ. 개요\n  1. 목적\n※ 참고")
-        assertEquals(HwpxParagraph.Style.TITLE, ps[0].style)
-        assertEquals(HwpxParagraph.Style.SECTION, ps[2].style)
-        assertEquals(1, ps[3].depth)
-        assertEquals(HwpxParagraph.Style.GRAY, ps[4].style)
+
+    @Test fun penaltyFollowsBaseRateAndNetAdjustment() {
+        val c = PenaltyCriteria()
+        // 모두 '상'이면 3.0점 → 매우 중대(100%)
+        val high = Calc.penalty(c, PenaltyInput(100_000_000, c.items.associate { it.id to 3 }))
+        assertEquals("매우 중대한 위반", high.band.label)
+        assertEquals(100_000_000, high.base)
+        // 모두 '중'이면 2.0점 → 중대(75%), 자진신고 30% 감경 → 7,500만 − 2,250만 = 5,250만
+        val mid = c.mitigations.first { it.label == "자진신고" }
+        val r = Calc.penalty(c, PenaltyInput(100_000_000, c.items.associate { it.id to 2 }, mitigations = setOf(mid.id)))
+        assertEquals(75_000_000, r.base)
+        assertEquals(52_500_000, r.final)
+        // 모두 '하'(1.0점) → 50%, 기준율 -10%p → 40%
+        val low = Calc.penalty(c, PenaltyInput(100_000_000, c.items.associate { it.id to 1 }, rateAdjust = -10.0))
+        assertEquals(40_000_000, low.base)
     }
 
-    @Test fun rangeLabelFollowsNoticeForm() {
-        val staff = SanctionStore.BUILT_IN_LEVELS.first { it.target == "직원" }.levels
-        assertEquals("정직(감봉 ~ 면직)", SanctionCalc.rangeLabel(staff, 1))
-        assertEquals("면직(정직 ~ 면직)", SanctionCalc.rangeLabel(staff, 0))
-        assertEquals("주의(주의 ~ 견책)", SanctionCalc.rangeLabel(staff, 4))
+    @Test fun penaltyCapsByCapitalAndGain() {
+        val c = PenaltyCriteria()
+        val r = Calc.penalty(c, PenaltyInput(1_000_000_000, c.items.associate { it.id to 3 }, capital = 2_000_000_000))
+        assertEquals(200_000_000, r.final) // 자본금 10%
+        val g = Calc.penalty(c, PenaltyInput(1_000_000_000, c.items.associate { it.id to 1 }, unjustGain = 30_000_000))
+        assertEquals(300_000_000, g.final) // 부당이득 10배
     }
 
-    @Test fun templatesExportWithTables() {
-        assertEquals(listOf("직위", "성명", ""), OpinionModel.tableCells("| 직위 | 성명 |  |"))
-        assertEquals(null, OpinionModel.tableCells("1. 제목"))
-        OpinionModel.BUILT_IN.forEach { t ->
-            val paras = OpinionModel.toParagraphs(t.body)
-            val hwpx = java.io.ByteArrayOutputStream()
-            com.hdlee73.everylaw.core.domain.HwpxExporter.writeDocument(t.name, paras, hwpx)
-            assertTrue(hwpx.size() > 0)
-            val docx = java.io.ByteArrayOutputStream()
-            io.github.hdlee73.fsssupporter.opinion.DocxWriter.write(t.body.lines(), docx)
-            val xml = java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(docx.toByteArray())).use { z ->
-                generateSequence { z.nextEntry }.first { it.name == "word/document.xml" }; z.readBytes().toString(Charsets.UTF_8)
-            }
-            javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(xml.byteInputStream())
-            if (t.body.contains("| 직위")) assertTrue(xml.contains("<w:tbl>"), t.name)
+    @Test fun fineUsesMatrixAndExemption() {
+        val c = FineCriteria()
+        val r = Calc.fine(c, FineInput(50_000_000, result = 0, motive = 0))
+        assertEquals(50_000_000, r.final)
+        val low = Calc.fine(c, FineInput(300_000, result = 2, motive = 2))
+        assertEquals(60_000, low.base)
+        assertTrue(low.exemptable)
+        val m = c.mitigations.first { it.label == "자진신고" }
+        val a = c.aggravations.first()
+        val mixed = Calc.fine(c, FineInput(10_000_000, result = 1, motive = 1, aggravations = setOf(a.id), mitigations = setOf(m.id)))
+        // 600만 × 1.2 = 720만 × 0.7 = 504만
+        assertEquals(5_040_000, mixed.final)
+    }
+
+    @Test fun levelStepsWithinCaps() {
+        val c = LevelCriteria()
+        val staff = c.targets.first { it.id == "staff" }
+        val base = Calc.level(staff, c, 1, 1, null, emptySet(), emptySet())
+        assertEquals("감봉", base.final)
+        val all = Calc.level(staff, c, 1, 1, null, emptySet(), staff.mitigations.map { it.id }.toSet())
+        assertEquals("주의", all.final) // 감경은 최대 2단계
+        val worse = Calc.level(staff, c, 0, 0, null, staff.aggravations.map { it.id }.toSet(), emptySet())
+        assertEquals("면직", worse.final)
+        assertEquals("감봉(견책 ~ 정직)", base.range)
+    }
+
+    @Test fun koreanWonReadsLargeAmounts() {
+        assertEquals("1억 2,345만 원", koreanWon(123_450_000))
+        assertEquals("5,000 원", koreanWon(5_000))
+    }
+
+    @Test fun dueDatesParse() {
+        val today = LocalDate.of(2026, 11, 3)
+        assertEquals("2026-11-04", parseDue("내일", today))
+        assertEquals("2026-11-20", parseDue("11/20", today))
+        assertEquals("2026-12-01", parseDue("20261201", today))
+        assertEquals(null, parseDue("abc", today))
+    }
+}
+
+class LibraryTest {
+    private fun hwpx(xml: String): File {
+        val f = File.createTempFile("fss-test", ".hwpx")
+        ZipOutputStream(f.outputStream()).use { z ->
+            z.putNextEntry(ZipEntry("mimetype")); z.write("application/hwp+zip".toByteArray()); z.closeEntry()
+            z.putNextEntry(ZipEntry("Contents/section0.xml")); z.write(xml.toByteArray()); z.closeEntry()
         }
-        val section = java.io.ByteArrayOutputStream().also {
-            com.hdlee73.everylaw.core.domain.HwpxExporter.writeDocument("t", OpinionModel.toParagraphs(OpinionModel.BUILT_IN.first().body), it)
+        return f
+    }
+
+    @Test fun readsHwpxText() {
+        val f = File.createTempFile("fss-test", ".hwpx")
+        ZipOutputStream(f.outputStream()).use { z ->
+            z.putNextEntry(ZipEntry("mimetype")); z.write("application/hwp+zip".toByteArray()); z.closeEntry()
+            z.putNextEntry(ZipEntry("Contents/section0.xml"))
+            z.write("""<hs:sec><hp:p><hp:run><hp:t>검사 &amp; 제재</hp:t></hp:run></hp:p><hp:p><hp:run><hp:t>둘째 줄</hp:t></hp:run></hp:p></hs:sec>""".toByteArray())
+            z.closeEntry()
         }
-        val sec = java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(section.toByteArray())).use { z ->
-            generateSequence { z.nextEntry }.first { it.name.endsWith("section0.xml") }; z.readBytes().toString(Charsets.UTF_8)
-        }
-        assertTrue(sec.contains("<hp:tbl"))
-        javax.xml.parsers.DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(sec.byteInputStream())
+        val text = HwpText.extract(f)
+        assertTrue(text.contains("검사 & 제재") && text.contains("둘째 줄"), text)
+        f.delete()
+    }
+
+
+    @Test fun hwp5RejectsNonHwp() {
+        val f = File.createTempFile("fss-test", ".hwp").apply { writeText("not a hwp") }
+        val e = runCatching { HwpText.extract(f) }.exceptionOrNull()
+        assertNotNull(e)
+        f.delete()
+    }
+
+    @Test fun readsHwpxTablesAsCells() {
+        val ns = """xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section""""
+        val f = hwpx("""<hs:sec $ns><hp:p><hp:run><hp:t>&lt; 제2-4호 서식 &gt;</hp:t></hp:run></hp:p>
+            <hp:p><hp:run><hp:tbl rowCnt="2" colCnt="2">
+              <hp:tr><hp:tc><hp:subList><hp:p><hp:run><hp:t>수신</hp:t></hp:run></hp:p></hp:subList><hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="1000" height="100"/></hp:tc>
+                     <hp:tc><hp:subList><hp:p><hp:run><hp:t>기관장</hp:t></hp:run></hp:p></hp:subList><hp:cellAddr colAddr="1" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="3000" height="100"/></hp:tc></hp:tr>
+              <hp:tr><hp:tc><hp:subList><hp:p><hp:run><hp:t>본문</hp:t></hp:run></hp:p></hp:subList><hp:cellAddr colAddr="0" rowAddr="1"/><hp:cellSpan colSpan="2" rowSpan="1"/></hp:tc></hp:tr>
+            </hp:tbl></hp:run></hp:p>
+            <hp:p><hp:run><hp:t>&lt; 제3-5호 서식 &gt;</hp:t></hp:run></hp:p><hp:p><hp:run><hp:t>확인서</hp:t></hp:run></hp:p>
+            <hp:p><hp:run><hp:t>&lt; 제3-5호 서식 &gt;</hp:t></hp:run></hp:p><hp:p><hp:run><hp:t>접수대장</hp:t></hp:run></hp:p></hs:sec>""")
+        val blocks = HwpText.read(f)
+        val table = blocks.filterIsInstance<HTable>().single()
+        assertEquals(3, table.cells.size)
+        assertEquals(2, table.cells.first { it.row == 1 }.colSpan)
+        assertEquals(3000, table.cells.first { it.col == 1 }.width)
+        val (forms, marks) = LibraryStore.splitFormBlocks(blocks)
+        assertEquals(setOf("2-4", "3-5"), forms.keys)
+        assertTrue(HwpText.flatten(forms.getValue("2-4")).contains("기관장"))
+        assertTrue(HwpText.flatten(forms.getValue("3-5")).let { it.contains("확인서") && it.contains("접수대장") })
+        // 2-4는 다음 번호(3-5)의 첫 표시 앞까지, 3-5는 같은 번호가 두 번 나와도 문서 끝까지
+        val r24 = LibraryStore.formRange(marks, "2-4")!!
+        assertEquals("< 제2-4호 서식 >", r24.first.text)
+        assertEquals(Hancom.Mark("< 제3-5호 서식 >", 1), r24.second)
+        assertEquals(null, LibraryStore.formRange(marks, "3-5")!!.second)
+        f.delete()
+    }
+
+
+    @Test fun nthCountsRepeatedMarks() {
+        val marks = listOf(FormMark("3-5", "< 제3-5호 서식 >"), FormMark("3-5", "< 제3-5호 서식 >"), FormMark("3-6", "< 제3-6호 서식 >"), FormMark("3-6", "< 제3-6호 서식 >"), FormMark("3-7", "< 제3-7호 서식 >"))
+        val r = LibraryStore.formRange(marks, "3-6")!!
+        assertEquals(Hancom.Mark("< 제3-6호 서식 >", 1), r.first)
+        assertEquals(Hancom.Mark("< 제3-7호 서식 >", 1), r.second)
+    }
+
+
+    @Test fun manualBlocksSplitLikeText() {
+        val blocks = listOf(HPara("제1장 검사준비"), HPara("01"), HPara("검사실시 결정"), HPara("□ 검사실시부서는 연간 계획에 따라 검사 실시를 결정한다."),
+            HTable(1, 1, listOf(HCell(0, 0, blocks = listOf(HPara("표 안의 설명입니다. 충분히 긴 글입니."))))), HPara("02"), HPara(""), HPara("현물검사(선택)"), HPara("□ 현물검사는 우선 시재의 일치 여부를 확인한다."))
+        val m = LibraryStore.splitManualBlocks(blocks)
+        assertEquals(listOf("검사실시 결정", "현물검사(선택)"), m.keys.toList())
+        assertTrue(m.getValue("검사실시 결정").any { it is HTable })
+    }
+
+
+    @Test fun keyFileRoundTrip() {
+        val text = KeyFile.seal(KeyFile.Keys("hong", "a".repeat(40)), "secret12")
+        assertTrue("hong" !in text)
+        assertEquals("hong", KeyFile.open(text, "secret12").lawOc)
+        assertTrue(runCatching { KeyFile.open(text, "wrong123") }.isFailure)
+    }
+
+
+    @Test fun formPagesFollowMarks() {
+        val pages = listOf(
+            "목차",
+            "< 제1-1호 서식 >\n면담 사전통지서",
+            "이어지는 둘째 쪽",
+            "< 제1-2호 서식 >\n조사출장 통지서\n" + "가".repeat(60) + "\n< 제1-3호 서식 >\n품의서",
+            "< 제1-1호 서식 >\n붙임",
+        )
+        val spans = LibraryStore.formSpans(pages)
+        assertEquals(PageSpan(1, 4), spans["1-1"]) // 같은 번호가 뒤에 또 나오면 넓힌다
+        assertEquals(PageSpan(3, 3), spans["1-2"]) // 다음 서식이 같은 쪽 중간에서 시작
+        assertEquals(PageSpan(3, 3), spans["1-3"]) // 다음 서식이 쪽 맨 위면 그 앞쪽까지
+        assertEquals(listOf("1-1", "1-2", "1-3", "1-1"), LibraryStore.marksFromPages(pages).map { it.no })
+    }
+
+    @Test fun tocSkipsContentsPage() {
+        val titles = listOf("검사실시 결정", "사전예고", "자료요구", "현장검사", "검사결과 보고")
+        val pages = listOf(titles.joinToString("\n"), "01 검사실시 결정 본문", "본문 계속", "02 사 전 예 고", "03 자료요구 04 현장검사", "05 검사결과 보고")
+        assertEquals(listOf(TocEntry("검사실시 결정", 1), TocEntry("사전예고", 3), TocEntry("자료요구", 4), TocEntry("현장검사", 4), TocEntry("검사결과 보고", 5)), LibraryStore.mapToc(titles, pages))
+    }
+
+    @Test fun catalogOrdersNumbers() {
+        assertEquals(listOf("1-2", "1-9", "1-10", "2-1"), listOf("1-10", "2-1", "1-9", "1-2").sortedWith(FormCatalog.noOrder))
+        assertTrue(FormCatalog.form("1-1").name.isNotBlank())
+    }
+
+    @Test fun searchIgnoresSpaces() {
+        assertEquals(3, LibraryStore.indexIgnoringSpace("가나 다 라 마", "다라"))
     }
 }

@@ -43,7 +43,7 @@ enum class KeyKind(val id: String, val title: String, val field: String, val sig
             "승인 메일이 오면(보통 1~2일) OC 값은 가입한 이메일의 @ 앞부분입니다. 예: hong@korea.kr → hong",
             "아래 칸에 OC를 넣고 '저장'한 뒤 '연결 확인'을 누르세요.",
         ),
-        "OC가 없으면 법률 도우미는 데모 데이터(일부 조문)로만 동작합니다.",
+        "OC가 없으면 법률 검색는 데모 데이터(일부 조문)로만 동작합니다.",
     ),
     DART(
         "dart", "OpenDART 인증키", "인증키 (40자)", "https://opendart.fss.or.kr/uss/umt/EgovMberInsertView.do",
@@ -75,7 +75,7 @@ fun KeyGuideBody(kind: KeyKind, current: String, onSave: (String) -> Unit, onTes
     }
 }
 
-/** 키 없이 법률 도우미·기업 검색을 처음 열 때 띄우는 안내 창 */
+/** 키 없이 법률 검색·기업 검색을 처음 열 때 띄우는 안내 창 */
 @Composable
 fun KeyGuideDialog(kind: KeyKind, settings: SettingsRepo, current: String, onSave: (String) -> Unit, onTest: suspend () -> String, onDismiss: () -> Unit) {
     var hide by remember { mutableStateOf(false) }

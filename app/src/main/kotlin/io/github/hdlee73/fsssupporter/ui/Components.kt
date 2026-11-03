@@ -160,7 +160,7 @@ fun SearchField(
 @Composable
 fun ScreenHeader(title: String, subtitle: String? = null, actions: @Composable (() -> Unit)? = null) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 18.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -229,4 +229,14 @@ fun parseYmd(text: String): String? {
     val digits = text.filter(Char::isDigit)
     if (digits.length != 8) return null
     return runCatching { java.time.LocalDate.parse(digits, java.time.format.DateTimeFormatter.BASIC_ISO_DATE); digits }.getOrNull()
+}
+
+/** 파일 열기 창. [filter]는 소문자 파일 이름을 받는다. */
+fun pickFile(title: String, filter: ((String) -> Boolean)? = null): java.io.File? {
+    val dialog = java.awt.FileDialog(null as java.awt.Frame?, title, java.awt.FileDialog.LOAD)
+    if (filter != null) dialog.setFilenameFilter { _, name -> filter(name.lowercase()) }
+    dialog.isVisible = true
+    val dir = dialog.directory ?: return null
+    val name = dialog.file ?: return null
+    return java.io.File(dir, name)
 }

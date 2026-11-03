@@ -2,6 +2,7 @@ package com.hdlee73.everylaw.core.parser
 
 import com.hdlee73.everylaw.core.model.AdminRuleDocument
 import com.hdlee73.everylaw.core.model.AdminRuleSummary
+import com.hdlee73.everylaw.core.model.Annex
 import com.hdlee73.everylaw.core.model.Article
 import com.hdlee73.everylaw.core.model.ArticleNo
 import com.hdlee73.everylaw.core.model.LawSummary
@@ -200,11 +201,24 @@ object DrfParsers {
         val articles = r.findAll("조문내용")
             .map { it.deepText() }
             .flatMap(::splitAdminArticles)
+        val annexes = r.findAll("별표단위").mapNotNull { n ->
+            val title = n.childText("별표제목")?.trim() ?: return@mapNotNull null
+            Annex(
+                no = n.childText("별표번호").orEmpty() + n.childText("별표가지번호").orEmpty(),
+                kind = n.childText("별표구분").orEmpty(),
+                title = title,
+                content = n.first("별표내용")?.deepText()?.trim().orEmpty(),
+                fileUrl = n.childText("별표서식파일링크")?.trim()?.ifBlank { null },
+                pdfUrl = n.childText("별표서식PDF파일링크")?.trim()?.ifBlank { null },
+            )
+        }
         return AdminRuleDocument(
             serialNo = info.childText("행정규칙일련번호").orEmpty(),
             name = info.childText("행정규칙명").orEmpty(),
             agency = info.childText("소관부처명", "발령기관명"),
             articles = articles,
+            annexes = annexes,
+            effectiveDate = info.childText("시행일자"),
         )
     }
 

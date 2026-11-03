@@ -201,7 +201,28 @@ data class AdminRuleDocument(
     val name: String,
     val agency: String?,
     val articles: List<Article>,
+    /** 별표·별지(번호·제목·본문 글자·파일 주소). 본문 글자가 없으면 파일로만 볼 수 있다. */
+    val annexes: List<Annex> = emptyList(),
+    /** 시행일자(yyyyMMdd) */
+    val effectiveDate: String? = null,
 )
+
+/** 법령·행정규칙의 별표 한 개 */
+data class Annex(
+    val no: String,
+    val kind: String,
+    val title: String,
+    val content: String,
+    val fileUrl: String? = null,
+    val pdfUrl: String? = null,
+) {
+    /** "별표 2" 또는 "별표 2의3" */
+    val label: String get() {
+        val main = no.take(4).trimStart('0').ifEmpty { "0" }
+        val branch = no.drop(4).trimStart('0')
+        return kind.ifBlank { "별표" } + " " + main + if (branch.isNotEmpty()) "의$branch" else ""
+    }
+}
 
 /** 위임조문 3단비교의 한 줄: 법률 조문과 그 조문이 위임한 시행령·시행규칙 조문들. */
 data class ThreeTierRow(

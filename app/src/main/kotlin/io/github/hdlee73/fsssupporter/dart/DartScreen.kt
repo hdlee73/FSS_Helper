@@ -125,7 +125,7 @@ private fun SearchPane(model: DartModel, modifier: Modifier) {
                 }
                 item { Label("관심기업 ${saved.watch.size}곳") }
                 if (saved.watch.isEmpty()) item {
-                    Text("회사 화면의 별표를 누르면 여기에 모이고, 새 공시가 올라오면 대시보드에 알려 줍니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp))
+                    Text("회사 화면의 별표를 누르면 여기에 모이고, 새 공시가 올라오면 홈과 메뉴에 건수로 알려 줍니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp))
                 }
                 items(saved.watch, key = { "w" + it.corp }) { CorpRow(it, it.corp == selected?.corp, true, saved.newCount[it.corp]) { model.open(it) } }
                 if (list == null && saved.recent.isNotEmpty()) {

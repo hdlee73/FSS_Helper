@@ -52,9 +52,8 @@ sealed interface VersionsState {
 
 /** 법률 도우미에서 위임 법령을 보여 주는 방식 */
 enum class LawView(val label: String, val hint: String) {
-    STACK("펼쳐 보기", "법률 아래로 시행령·시행규칙·감독규정·세칙을 차례로 펼칩니다"),
+    INSIGHTS("위임 펼쳐 보기", "항·호·목 바로 아래에 위임한 하위 규정을, 인용만 한 법규는 맨 아래에 따로 보여 줍니다"),
     COMPARE("단계 비교", "위임 내용이 있는 단계만 열로 나란히 비교합니다(1~5단)"),
-    SPLIT("목록+본문", "왼쪽 목록에서 고르면 오른쪽에 본문을 보여 줍니다"),
 }
 
 /** 법률 도우미 화면 상태. FSS Insights 의 SearchViewModel 을 데스크톱용으로 옮긴 것. */
@@ -82,7 +81,7 @@ class LawSearchModel(private val law: LawModule, private val settings: SettingsR
     private val _inline = MutableStateFlow(true)
     val inline: StateFlow<Boolean> = _inline.asStateFlow()
 
-    private val _view = MutableStateFlow(LawView.STACK)
+    private val _view = MutableStateFlow(LawView.INSIGHTS)
     val view: StateFlow<LawView> = _view.asStateFlow()
     fun setView(v: LawView) { _view.value = v }
 
@@ -166,8 +165,8 @@ class LawSearchModel(private val law: LawModule, private val settings: SettingsR
     }
 
     fun expandAll(expand: Boolean) = updateTree { s ->
-        val root = if (_inline.value) s.tree.root.withParagraphPieces() else s.tree.root
-        s.copy(expanded = if (expand) (root.flatten() + s.tree.cited.flatMap { it.flatten() }).map { it.id }.toSet() else setOf(root.id))
+        val keepCited = s.expanded.filter { it.startsWith("cited:") }
+        s.copy(expanded = keepCited.toSet() + if (expand) (s.tree.root.flatten() + s.tree.cited.flatMap { it.flatten() }).map { it.id } else listOf(s.tree.root.id))
     }
 
     fun select(nodeId: String) {
@@ -180,7 +179,7 @@ class LawSearchModel(private val law: LawModule, private val settings: SettingsR
     }
 
     private fun defaultExpanded(tree: DelegationTree): Set<String> =
-        (tree.root.flatten() + tree.root.withParagraphPieces().flatten() + tree.cited.flatMap { it.flatten() }).map { it.id }.toSet()
+        (tree.root.flatten() + tree.cited.flatMap { it.flatten() }).map { it.id }.toSet()
 
     // ---------- 상세 ----------
 

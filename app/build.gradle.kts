@@ -54,7 +54,6 @@ dependencies {
     // Windows DPAPI(키 암호화 저장)
     implementation("net.java.dev.jna:jna-platform:5.17.0")
     // 엑셀 내보내기 (Apache POI보다 훨씬 가볍다)
-    implementation("org.dhatim:fastexcel:0.19.0")
     // 기업 개황 PDF 저장(맑은 고딕을 필요한 글자만 넣는다)
     implementation("org.apache.pdfbox:pdfbox:3.0.3")
 

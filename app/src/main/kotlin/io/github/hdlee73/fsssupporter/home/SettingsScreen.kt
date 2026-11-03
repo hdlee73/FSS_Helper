@@ -71,7 +71,7 @@ fun SettingsScreen(settings: SettingsRepo, law: LawModule, dart: DartModel, pref
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             AppCard(Modifier.fillMaxWidth()) {
-                CardTitle("국가법령정보 OC · 법률 도우미·문서 법규 검증에 필요") { Pill(if (settings.lawOc.isNotBlank()) "저장됨" else "데모 데이터", if (settings.lawOc.isNotBlank()) Tone.OK else Tone.WARN) }
+                CardTitle("국가법령정보 OC · 법률 검색·제재 기준 원문에 필요") { Pill(if (settings.lawOc.isNotBlank()) "저장됨" else "데모 데이터", if (settings.lawOc.isNotBlank()) Tone.OK else Tone.WARN) }
                 KeyGuideBody(KeyKind.LAW, settings.lawOc, onSave = { settings.setLawOc(it); onMessage("법령 OC를 저장했습니다.") }, onTest = { testLaw(law) })
             }
 
@@ -134,7 +134,7 @@ fun SettingsScreen(settings: SettingsRepo, law: LawModule, dart: DartModel, pref
 
             AppCard(Modifier.fillMaxWidth()) {
                 CardTitle("내 자료")
-                Text("검사건·일정·지적사항·양정 기준·가져온 서식: ${AppDirs.root.absolutePath}\n검사건 문서·내보낸 파일(HWP·HWPX·PDF·XLSX): ${AppDirs.exports.absolutePath}", style = MaterialTheme.typography.bodySmall)
+                Text("할 일·기준·가져온 매뉴얼·서식: ${AppDirs.root.absolutePath}\n작성한 서식·내보낸 파일(HWP·HWPX·PDF): ${AppDirs.exports.absolutePath}", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { Os.open(AppDirs.root) }) { Text("자료 폴더 열기") }
                     OutlinedButton(onClick = { AppDirs.exports.mkdirs(); Os.open(AppDirs.exports) }) { Text("내보낸 파일 폴더 열기") }

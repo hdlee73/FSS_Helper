@@ -119,11 +119,11 @@ fun LawScreen(
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(
-            "법률 도우미",
+            "법률 검색",
             subtitle = when {
                 model.isSample -> "데모 데이터로 동작 중입니다. 국가법령정보 OC를 받아 넣으면 실제 법령을 조회합니다(오른쪽 'OC 받는 방법')."
                 offline -> "www.law.go.kr 연결이 안 돼 저장해 둔 자료를 보여 주고 있습니다."
-                else -> "법령명 + 조문은 법률→시행령→시행규칙→감독규정→세칙을 펼쳐 보기·단계 비교로, 단어만 넣으면 키워드 통합 검색으로 찾습니다."
+                else -> "법령명 + 조문을 넣으면 항·호·목마다 위임한 하위 규정을 바로 아래에 펼쳐 보여 줍니다. 단어만 넣으면 키워드 통합 검색입니다."
             },
         ) {
             if (offline) Pill("오프라인 캐시", Tone.WARN)
@@ -203,26 +203,6 @@ private fun IdleView(recent: List<String>, favorites: List<String>, onPick: (Str
     }
 }
 
-/** 트리를 화면에 펼친 한 줄 */
-private data class Row1(val node: LawNode, val depth: Int, val hasChildren: Boolean, val open: Boolean)
-
-private fun visibleRows(root: LawNode, expanded: Set<String>): List<Row1> {
-    val out = mutableListOf<Row1>()
-    fun walk(n: LawNode, d: Int) {
-        val open = n.id in expanded
-        out += Row1(n, d, n.children.isNotEmpty(), open)
-        if (open) n.children.forEach { walk(it, d + 1) }
-    }
-    walk(root, 0)
-    return out
-}
-
-private fun levelTone(level: LawLevel): Tone = when (level) {
-    LawLevel.LAW -> Tone.ACCENT
-    LawLevel.DECREE, LawLevel.RULE -> Tone.OK
-    else -> Tone.NEUTRAL
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TreeView(
@@ -265,10 +245,16 @@ private fun TreeView(
         }
         tree.warnings.forEach { InfoBox(it) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (view) {
-                LawView.STACK -> StackView(model, s, onMessage)
-                LawView.COMPARE -> CompareView(tree, onMessage)
-                LawView.SPLIT -> SplitView(model, s, onMessage)
+            val detail by model.detail.collectAsState()
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    when (view) {
+                        LawView.INSIGHTS -> InsightsView(model, s, onMessage)
+                        LawView.COMPARE -> CompareView(tree, onMessage)
+                    }
+                }
+                // 판례 등을 누르면 오른쪽에 본문을 띄운다.
+                if (detail != LawDetail.None) Box(Modifier.width(480.dp).fillMaxHeight()) { DetailView(detail, model::closeDetail, onMessage) }
             }
         }
     }
@@ -278,108 +264,6 @@ private fun TreeView(
 private fun levelSummary(root: LawNode): String =
     root.children.flatMap { it.flatten() }.groupingBy { it.level }.eachCount().entries.sortedBy { it.key.ordinal }
         .joinToString(" · ") { "${it.key.shortLabel} ${it.value}" }
-
-/** 위임 트리에서 지금 보이는 노드(항별 나누기 반영)와 인용된 법규를 모두 뒤져 id로 찾는다. */
-private fun findShown(tree: DelegationTree, inline: Boolean, id: String): LawNode? {
-    val base = if (inline) tree.root.withParagraphPieces() else tree.root
-    return base.flatten().firstOrNull { it.id == id } ?: tree.findNode(id) ?: tree.cited.flatMap { it.flatten() }.firstOrNull { it.id == id }
-}
-
-// ── 펼쳐 보기: 화면을 나누지 않고 법률 아래로 하위 규정을 차례로 펼친다
-@Composable
-private fun StackView(model: LawSearchModel, s: LawUiState.Tree, onMessage: (String) -> Unit) {
-    val filter by model.filter.collectAsState()
-    val inline by model.inline.collectAsState()
-    val tree = s.tree
-    val baseRoot = if (inline) tree.root.withParagraphPieces() else tree.root
-    val root = if (filter.isBlank()) baseRoot else TreeFilter.filter(baseRoot, filter)
-    val expanded = if (filter.isBlank()) s.expanded else root.flatten().map { it.id }.toSet()
-    val rows = visibleRows(root, expanded)
-    val cited = tree.cited.flatMap { visibleRows(it, expanded) }
-    var closed by remember(tree) { mutableStateOf(setOf<String>()) }
-    val listState = rememberLazyListState()
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SearchField(filter, model::setFilter, {}, "결과 안에서 찾기 (단어 또는 제12조)", Modifier.weight(1f))
-            TextButton(onClick = { model.expandAll(true); closed = emptySet() }) { Text("모두 펼치기") }
-            TextButton(onClick = { model.expandAll(true); closed = (root.flatten() + tree.cited.flatMap { it.flatten() }).map { it.id }.toSet() - root.id }) { Text("제목만") }
-            TextButton(onClick = { model.expandAll(false) }) { Text("법률만") }
-            Text("항별로 나누기", style = MaterialTheme.typography.labelSmall)
-            Switch(checked = inline, onCheckedChange = model::setInline, modifier = Modifier.padding(start = 4.dp))
-        }
-        Box(Modifier.weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(rows, key = { "s:" + it.node.id }) { r ->
-                    StackNode(r, r.node.id !in closed, onToggleBody = { closed = if (r.node.id in closed) closed - r.node.id else closed + r.node.id },
-                        onToggleChildren = { model.toggle(r.node.id) }, onSearch = { q -> model.submit(q) }, onMessage = onMessage)
-                }
-                if (cited.isNotEmpty()) {
-                    item { SectionLabel("이 조문을 인용한 하위 법규 (위임 아님)") }
-                    items(cited, key = { "sc:" + it.node.id }) { r ->
-                        StackNode(r, r.node.id !in closed, onToggleBody = { closed = if (r.node.id in closed) closed - r.node.id else closed + r.node.id },
-                            onToggleChildren = { model.toggle(r.node.id) }, onSearch = { q -> model.submit(q) }, onMessage = onMessage)
-                    }
-                }
-                if (tree.precedents.isNotEmpty()) {
-                    item { SectionLabel("관련 판례 ${tree.precedents.size}건" + tree.precedentBasis.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()) }
-                    items(tree.precedents, key = { "sp:" + it.serialNo }) { p ->
-                        ListLine(p.caseName, listOfNotNull(p.court, p.caseNumber, p.decisionDate?.let(::formatYmd), p.matchNote).joinToString(" · ")) { model.openPrecedent(p); model.setView(LawView.SPLIT) }
-                    }
-                }
-            }
-            VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun StackNode(r: Row1, open: Boolean, onToggleBody: () -> Unit, onToggleChildren: () -> Unit, onSearch: (String) -> Unit, onMessage: (String) -> Unit) {
-    val n = r.node
-    val cite = citationOf(n.sourceName, n.article)
-    val bar = levelColor(n.level)
-    Row(Modifier.fillMaxWidth().padding(start = (r.depth * 22).dp)) {
-        Column(
-            Modifier.weight(1f).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-                .drawBehind { drawRect(bar, size = Size(4.dp.toPx(), size.height)) }
-                .padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
-        ) {
-            Row(Modifier.fillMaxWidth().clickable(onClick = onToggleBody), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (r.hasChildren) {
-                    Icon(if (r.open) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight, if (r.open) "하위 접기" else "하위 펼치기",
-                        Modifier.size(18.dp).clickable(onClick = onToggleChildren))
-                } else Spacer(Modifier.width(18.dp))
-                Pill(n.level.shortLabel, levelTone(n.level))
-                Column(Modifier.weight(1f)) {
-                    Text(listOfNotNull(n.article.fullTitle.ifBlank { n.displayHeading }, n.part).joinToString(" "), style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(n.sourceName + (n.issuer?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                IconButton(onClick = { Os.copy(cite); onMessage("인용 표기를 복사했어요: $cite") }, modifier = Modifier.size(30.dp)) { Icon(Icons.Outlined.ContentCopy, "인용 복사", Modifier.size(15.dp)) }
-                Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (open) "본문 접기" else "본문 펼치기", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (open) {
-                if (n.delegatedBy.isNotEmpty()) Text("위임한 상위 조문: " + n.delegatedBy.joinToString(", ") { it.heading }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SelectionContainer { Text(n.article.body, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp, start = 24.dp)) }
-                FlowRow(Modifier.padding(start = 18.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    TextButton(onClick = { Os.copy(cite + "\n" + n.article.body); onMessage("조문 원문을 복사했어요.") }) { Text("원문 복사", style = MaterialTheme.typography.labelMedium) }
-                    if (n.level != LawLevel.LAW && n.article.number != null && n.level.ordinal <= LawLevel.RULE.ordinal) {
-                        TextButton(onClick = { onSearch(n.sourceName + " " + n.article.number!!.display) }) { Text("이 조문으로 검색", style = MaterialTheme.typography.labelMedium) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun levelColor(level: LawLevel) = when (level) {
-    LawLevel.LAW -> MaterialTheme.colorScheme.primary
-    LawLevel.DECREE -> MaterialTheme.colorScheme.tertiary
-    LawLevel.RULE -> MaterialTheme.colorScheme.secondary
-    LawLevel.SUPERVISORY_REGULATION -> MaterialTheme.colorScheme.outline
-    else -> MaterialTheme.colorScheme.outlineVariant
-}
 
 // ── 단계 비교: 위임 내용이 있는 단계만 열로 만든다(법률 + 0~4단계 = 1~5단)
 @OptIn(ExperimentalLayoutApi::class)
@@ -434,7 +318,7 @@ private fun CompareView(tree: DelegationTree, onMessage: (String) -> Unit) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
                 if (tree.cited.isNotEmpty()) item {
-                    SectionLabel("이 조문을 인용한 하위 법규 ${tree.cited.size}건(위임 아님) · '펼쳐 보기'에서 볼 수 있습니다")
+                    SectionLabel("이 조문을 인용한 하위 법규 ${tree.cited.size}건(위임 아님) · '위임 펼쳐 보기' 맨 아래에서 볼 수 있습니다")
                 }
             }
             VerticalScrollbar(rememberScrollbarAdapter(ls), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
@@ -453,130 +337,6 @@ private fun compareAsText(columns: List<LawLevel>, rows: List<com.hdlee73.everyl
 }
 
 // ── 목록+본문: 왼쪽 위임 트리, 오른쪽 본문
-@Composable
-private fun SplitView(model: LawSearchModel, s: LawUiState.Tree, onMessage: (String) -> Unit) {
-    val filter by model.filter.collectAsState()
-    val inline by model.inline.collectAsState()
-    val detail by model.detail.collectAsState()
-    val tree = s.tree
-    val baseRoot = if (inline) tree.root.withParagraphPieces() else tree.root
-    val root = if (filter.isBlank()) baseRoot else TreeFilter.filter(baseRoot, filter)
-    val expanded = if (filter.isBlank()) s.expanded else root.flatten().map { it.id }.toSet()
-    val rows = visibleRows(root, expanded)
-    val cited = tree.cited.flatMap { visibleRows(it, expanded) }
-    val listState = rememberLazyListState()
-
-    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(0.46f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SearchField(filter, model::setFilter, {}, "결과 안에서 찾기 (단어 또는 제12조)", Modifier.fillMaxWidth())
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { model.expandAll(true) }) { Text("모두 펼치기") }
-                TextButton(onClick = { model.expandAll(false) }) { Text("접기") }
-                Spacer(Modifier.weight(1f))
-                Text("항별로 나누기", style = MaterialTheme.typography.labelSmall)
-                Switch(checked = inline, onCheckedChange = model::setInline, modifier = Modifier.padding(start = 4.dp))
-            }
-            Box(Modifier.weight(1f)) {
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 10.dp)) {
-                    items(rows, key = { "t:" + it.node.id }) { r -> NodeRow(r, r.node.id == s.selectedId, model) }
-                    if (cited.isNotEmpty()) {
-                        item { SectionLabel("이 조문을 인용한 하위 법규 (위임 아님)") }
-                        items(cited, key = { "c:" + it.node.id }) { r -> NodeRow(r, r.node.id == s.selectedId, model) }
-                    }
-                    if (tree.precedents.isNotEmpty()) {
-                        item { SectionLabel("관련 판례 ${tree.precedents.size}건" + tree.precedentBasis.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()) }
-                        items(tree.precedents, key = { "p:" + it.serialNo }) { p ->
-                            ListLine(p.caseName, listOfNotNull(p.court, p.caseNumber, p.decisionDate?.let(::formatYmd), p.matchNote).joinToString(" · ")) { model.openPrecedent(p) }
-                        }
-                    }
-                }
-                VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
-            }
-        }
-        Box(Modifier.weight(0.54f).fillMaxHeight()) {
-            when (val d = detail) {
-                LawDetail.None -> {
-                    // 항별로 나눈 노드(예: 시행령 제87조 제1항)도 찾도록 지금 보이는 트리에서 찾는다.
-                    val node = findShown(tree, inline, s.selectedId) ?: tree.root
-                    NodeDetail(node, onMessage, onSearch = { q -> model.submit(q) })
-                }
-                else -> DetailView(d, onClose = model::closeDetail, onMessage)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp, start = 4.dp))
-}
-
-@Composable
-private fun NodeRow(r: Row1, selected: Boolean, model: LawSearchModel) {
-    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background
-    Row(
-        Modifier.fillMaxWidth().background(bg, MaterialTheme.shapes.small).clickable { model.select(r.node.id) }
-            .padding(start = (4 + r.depth * 18).dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (r.hasChildren) {
-            Icon(
-                if (r.open) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,
-                if (r.open) "접기" else "펼치기",
-                Modifier.size(18.dp).clickable { model.toggle(r.node.id) },
-            )
-        } else Spacer(Modifier.width(18.dp))
-        Pill(r.node.level.shortLabel, levelTone(r.node.level))
-        Column(Modifier.weight(1f)) {
-            Text(r.node.displayHeading.ifBlank { r.node.article.fullTitle }, style = MaterialTheme.typography.bodyMedium, fontWeight = if (r.depth == 0) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(r.node.sourceName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun ListLine(title: String, sub: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 6.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun NodeDetail(node: LawNode, onMessage: (String) -> Unit, onSearch: (String) -> Unit) {
-    val cite = citationOf(node.sourceName, node.article)
-    AppCard(Modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Pill(node.level.label, levelTone(node.level))
-            node.issuer?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        Text(node.sourceName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(listOfNotNull(node.article.fullTitle, node.part).joinToString(" "), style = MaterialTheme.typography.titleMedium)
-        if (node.delegatedBy.isNotEmpty()) {
-            Text("위임한 상위 조문: " + node.delegatedBy.joinToString(", ") { it.heading }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilledTonalButton(onClick = { Os.copy(cite); onMessage("인용 표기를 복사했어요: $cite") }) {
-                Icon(Icons.Outlined.ContentCopy, null, Modifier.size(15.dp)); Spacer(Modifier.width(4.dp)); Text("인용 복사")
-            }
-            OutlinedButton(onClick = { Os.copy(cite + "\n" + node.article.body); onMessage("조문 원문을 복사했어요.") }) { Text("원문 복사") }
-            if (node.level != LawLevel.LAW && node.article.number != null && node.level.ordinal <= LawLevel.RULE.ordinal) {
-                OutlinedButton(onClick = { onSearch(node.sourceName + " " + node.article.number!!.display) }) { Text("이 조문으로 검색") }
-            }
-        }
-        HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-        val sc = rememberScrollState()
-        Box(Modifier.weight(1f)) {
-            SelectionContainer {
-                Text(node.article.body, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.fillMaxWidth().verticalScroll(sc).padding(end = 10.dp))
-            }
-            VerticalScrollbar(rememberScrollbarAdapter(sc), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
-        }
-    }
-}
-
 @Composable
 fun DetailView(d: LawDetail, onClose: () -> Unit, onMessage: (String) -> Unit) {
     AppCard(Modifier.fillMaxSize()) {
@@ -737,6 +497,19 @@ private fun treeAsText(tree: DelegationTree): String = buildString {
 private suspend fun exportHwpx(tree: DelegationTree): File = withContext(Dispatchers.IO) {
     val safe = (tree.law.name + " " + tree.query.article.display).replace(Regex("""[\\/:*?"<>|]"""), "_")
     val file = File(AppDirs.exports, "$safe.hwpx")
-    file.outputStream().use { HwpxExporter.write(tree, HwpxOptions(footer = "FSS_Helper ${BuildInfo.VERSION} · 이현덕 with Claude", heading = "FSS_Helper 법률 도우미 조회 결과"), it) }
+    file.outputStream().use { HwpxExporter.write(tree, HwpxOptions(footer = "FSS_Helper ${BuildInfo.VERSION} · 이현덕 with Claude", heading = "FSS_Helper 법률 검색 결과"), it) }
     file
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp, start = 4.dp))
+}
+
+@Composable
+private fun ListLine(title: String, sub: String, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 6.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }

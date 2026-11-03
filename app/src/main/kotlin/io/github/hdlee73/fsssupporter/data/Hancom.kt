@@ -24,10 +24,22 @@ object Hancom {
     val available: Boolean get() = System.getProperty("os.name").orEmpty().startsWith("Windows")
 
     @Serializable
-    private data class Job(val src: String, val out: String, val format: String, val start: String, val startNth: Int, val end: String = "", val endNth: Int = 0)
+    private data class Job(val src: String, val out: String, val format: String, val start: String = "", val startNth: Int = 1, val end: String = "", val endNth: Int = 0, val mode: String = "cut")
+
+    /** 한글 문서를 한글이 직접 PDF로 저장한다(쪽 모양·표·글꼴이 원본 그대로). */
+    suspend fun toPdf(src: File, out: File): Result {
+        val format = if (src.name.lowercase().endsWith(".hwpx")) "HWPX" else "HWP"
+        return run(Job(src.absolutePath, out.absolutePath, format, mode = "pdf"), out, timeoutSec = 600)
+    }
 
     /** [src]를 [out]으로 복사한 뒤 [start] 문단부터 [end] 문단 앞까지만 남긴다. [end]가 없으면 문서 끝까지. */
     suspend fun extract(src: File, out: File, start: Mark, end: Mark?): Result = withContext(Dispatchers.IO) {
+        val format = if (src.name.lowercase().endsWith(".hwpx")) "HWPX" else "HWP"
+        run(Job(src.absolutePath, out.absolutePath, format, start.text, start.nth, end?.text.orEmpty(), end?.nth ?: 0), out, timeoutSec = 120)
+            .let { if (it is Result.Failed && "NOTFOUND" in it.message) Result.Failed("원본에서 '${start.text}'를 찾지 못했습니다.") else it }
+    }
+
+    private suspend fun run(jobData: Job, out: File, timeoutSec: Long): Result = withContext(Dispatchers.IO) {
         if (!available) return@withContext Result.Failed("Windows에서만 쓸 수 있습니다.", noHancom = true)
         out.parentFile?.mkdirs()
         val dir = AppDirs.sub("tmp")
@@ -35,24 +47,23 @@ object Hancom {
         // PowerShell 5는 BOM이 있어야 UTF-8 스크립트의 한글을 바르게 읽는다.
         script.writeBytes(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + SCRIPT.toByteArray(Charsets.UTF_8))
         val job = File(dir, "hwp-job.json")
-        val format = if (src.name.lowercase().endsWith(".hwpx")) "HWPX" else "HWP"
-        job.writeText(AppJson.encodeToString(Job.serializer(), Job(src.absolutePath, out.absolutePath, format, start.text, start.nth, end?.text.orEmpty(), end?.nth ?: 0)), Charsets.UTF_8)
+        job.writeText(AppJson.encodeToString(Job.serializer(), jobData), Charsets.UTF_8)
         val p = runCatching {
             ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script.absolutePath, "-job", job.absolutePath)
                 .redirectErrorStream(true).start()
         }.getOrElse { return@withContext Result.Failed("PowerShell을 실행하지 못했습니다: ${it.message}") }
         val text = StringBuilder()
         val reader = Thread { runCatching { p.inputStream.bufferedReader(Charsets.UTF_8).forEachLine { text.appendLine(it) } } }.apply { isDaemon = true; start() }
-        if (!p.waitFor(120, TimeUnit.SECONDS)) {
+        if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
             p.destroyForcibly()
-            return@withContext Result.Failed("한글이 2분 안에 끝내지 못했습니다. 한글에 '파일 접근 허용' 창이 떠 있으면 허용한 뒤 다시 눌러 주세요.")
+            return@withContext Result.Failed("한글이 제때 끝내지 못했습니다. 한글에 '파일 접근 허용' 창이 떠 있으면 허용한 뒤 다시 눌러 주세요.")
         }
         reader.join(2000)
         val log = text.toString()
         when {
             p.exitValue() == 0 && "RESULT:OK" in log && out.isFile -> Result.Ok(out)
             "RESULT:NOHWP" in log -> Result.Failed("이 PC에서 한글 자동화를 찾지 못했습니다(한컴오피스 한글 필요).", noHancom = true)
-            "RESULT:NOTFOUND" in log -> Result.Failed("원본에서 '${start.text}'를 찾지 못했습니다.")
+            "RESULT:NOTFOUND" in log -> Result.Failed("NOTFOUND")
             else -> Result.Failed("한글 작업이 실패했습니다: " + log.lines().lastOrNull { it.isNotBlank() }.orEmpty().take(200))
         }
     }
@@ -84,6 +95,13 @@ function Find-Nth([string]${'$'}text, [int]${'$'}n) {
 }
 try {
   try { [void]${'$'}hwp.RegisterModule('FilePathCheckDLL', 'FilePathCheckerModule') } catch {}
+  if (${'$'}p.mode -eq 'pdf') {
+    if (-not ${'$'}hwp.Open(${'$'}p.src, ${'$'}p.format, 'forceopen:true;versionwarning:false')) { Write-Output 'RESULT:OPENFAIL'; exit 5 }
+    if (Test-Path -LiteralPath ${'$'}p.out) { Remove-Item -LiteralPath ${'$'}p.out -Force }
+    [void]${'$'}hwp.SaveAs(${'$'}p.out, 'PDF', '')
+    if (Test-Path -LiteralPath ${'$'}p.out) { Write-Output 'RESULT:OK' } else { Write-Output 'RESULT:ERROR PDF 저장 실패'; exit 6 }
+    return
+  }
   Copy-Item -LiteralPath ${'$'}p.src -Destination ${'$'}p.out -Force
   Set-ItemProperty -LiteralPath ${'$'}p.out -Name IsReadOnly -Value ${'$'}false
   if (-not ${'$'}hwp.Open(${'$'}p.out, ${'$'}p.format, 'forceopen:true;versionwarning:false')) { Write-Output 'RESULT:OPENFAIL'; exit 5 }
