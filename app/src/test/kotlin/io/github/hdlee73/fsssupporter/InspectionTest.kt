@@ -62,7 +62,7 @@ class InspectionTest {
     }
 
     @Test fun readsHwpxText() {
-        val f = File.createTempFile("t", ".hwpx")
+        val f = File.createTempFile("fss-test", ".hwpx")
         ZipOutputStream(f.outputStream()).use { z ->
             z.putNextEntry(ZipEntry("mimetype")); z.write("application/hwp+zip".toByteArray()); z.closeEntry()
             z.putNextEntry(ZipEntry("Contents/section0.xml"))
@@ -75,7 +75,7 @@ class InspectionTest {
     }
 
     @Test fun hwp5RejectsNonHwp() {
-        val f = File.createTempFile("t", ".hwp").apply { writeText("not a hwp") }
+        val f = File.createTempFile("fss-test", ".hwp").apply { writeText("not a hwp") }
         val e = runCatching { HwpText.extract(f) }.exceptionOrNull()
         assertNotNull(e)
         f.delete()
