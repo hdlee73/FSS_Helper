@@ -18,13 +18,16 @@ data class AppSettings(
     val dartKeySealed: String = "",
     val sidebarCollapsed: Boolean = false,
     val theme: ThemeMode = ThemeMode.SYSTEM,
-    val autoUpdate: Boolean = true,
+    /** 내부망에서 쓰므로 기본은 끔(앱 정보에서 직접 확인·파일로 설치) */
+    val autoUpdate: Boolean = false,
     val lastUpdateCheck: Long = 0,
     val skippedVersion: String = "",
     val recentLaw: List<String> = emptyList(),
     val favoriteLaw: List<String> = emptyList(),
     /** 처음 실행 안내를 본 버전 */
     val seenWelcome: String = "",
+    /** 인증키 안내 창을 다시 보지 않기로 한 것("law", "dart") */
+    val keyGuideHidden: Set<String> = emptySet(),
 )
 
 /** 설정 저장소. 화면은 [state]를 구독하고, 바꿀 때는 [update]를 부른다. */

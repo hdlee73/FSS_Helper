@@ -64,8 +64,8 @@ class DashboardActions(
     val openCalendar: () -> Unit,
     val openCorp: (String) -> Unit,
     val openDart: () -> Unit,
-    val openOpinion: () -> Unit,
-    val openSanction: () -> Unit,
+    val newCase: () -> Unit,
+    val openVerify: () -> Unit,
     val openSettings: () -> Unit,
 )
 
@@ -114,7 +114,7 @@ fun DashboardScreen(store: TaskStore, dart: DartModel, settings: SettingsRepo, c
                     TextButton(onClick = a.newTask) { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)); Text(" 새 작업") }
                 }
                 if (open.isEmpty()) {
-                    Text("진행 중인 검사·리포트·의견서 작업을 등록하면 여기에 마감순으로 보입니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("진행 중인 검사건과 할 일을 등록하면 여기에 마감순으로 보입니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 open.take(7).forEach { t ->
                     Row(Modifier.fillMaxWidth().clickable { a.openTask(t.id) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -195,8 +195,8 @@ fun DashboardScreen(store: TaskStore, dart: DartModel, settings: SettingsRepo, c
             }
             AppCard(Modifier.width(260.dp)) {
                 CardTitle("바로 가기")
-                QuickLink(Icons.Outlined.Assignment, "새 검사의견서·조치안", a.openOpinion)
-                QuickLink(Icons.Outlined.Assignment, "제재 양정 계산", a.openSanction)
+                QuickLink(Icons.Outlined.Assignment, "새 검사건", a.newCase)
+                QuickLink(Icons.Outlined.Assignment, "작성한 문서 법규 검증", a.openVerify)
                 QuickLink(Icons.Outlined.Event, "일정 추가", a.openCalendar)
                 val (files, bytes) = remember(offline) { cache.stats() }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

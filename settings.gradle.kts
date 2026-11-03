@@ -14,6 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FSS_Supporter"
+rootProject.name = "FSS_Helper"
 include(":law-core")
 include(":app")

@@ -6,11 +6,13 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-/** 앱 데이터 폴더. Windows는 %APPDATA%\FSS_Supporter, 그 밖에는 ~/.fss_supporter */
+/** 앱 데이터 폴더. Windows는 %APPDATA%\FSS_Helper, 그 밖에는 ~/.fss_helper. 예전 이름(FSS_Supporter) 폴더가 있으면 옮겨 쓴다. */
 object AppDirs {
     val root: File by lazy {
         val appData = System.getenv("APPDATA")
-        val dir = if (!appData.isNullOrBlank()) File(appData, "FSS_Supporter") else File(System.getProperty("user.home"), ".fss_supporter")
+        val (dir, old) = if (!appData.isNullOrBlank()) File(appData, "FSS_Helper") to File(appData, "FSS_Supporter")
+        else File(System.getProperty("user.home"), ".fss_helper") to File(System.getProperty("user.home"), ".fss_supporter")
+        if (!dir.exists() && old.isDirectory) runCatching { if (!old.renameTo(dir)) old.copyRecursively(dir) }
         dir.apply { mkdirs() }
     }
 
@@ -18,7 +20,11 @@ object AppDirs {
     val cache: File get() = sub("cache")
     val exports: File by lazy {
         val docs = File(System.getProperty("user.home"), "Documents")
-        File(if (docs.isDirectory) docs else File(System.getProperty("user.home")), "FSS_Supporter").apply { mkdirs() }
+        val base = if (docs.isDirectory) docs else File(System.getProperty("user.home"))
+        val dir = File(base, "FSS_Helper")
+        val old = File(base, "FSS_Supporter")
+        if (!dir.exists() && old.isDirectory) runCatching { old.renameTo(dir) }
+        dir.apply { mkdirs() }
     }
 }
 

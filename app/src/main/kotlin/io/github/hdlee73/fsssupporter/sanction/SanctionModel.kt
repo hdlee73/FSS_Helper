@@ -181,7 +181,7 @@ object SanctionCalc {
 
     /** 계산 결과 한 장짜리 엑셀 */
     fun writeXlsx(title: String, profileName: String, basis: String, lines: List<Pair<String, String>>, reasons: List<String>, out: OutputStream) {
-        val wb = org.dhatim.fastexcel.Workbook(out, "FSS_Supporter", "1.0")
+        val wb = org.dhatim.fastexcel.Workbook(out, "FSS_Helper", "1.0")
         val ws = wb.newWorksheet("양정")
         ws.width(0, 18.0)
         ws.width(1, 70.0)
@@ -199,7 +199,7 @@ object SanctionCalc {
         if (reasons.isNotEmpty()) { ws.value(r, 0, "반영 사유"); ws.value(r, 1, reasons.joinToString(", ")); r++ }
         r++
         ws.value(r, 0, "※ 산정 기준 수치는 근거 규정 별표와 대조해 확인할 것")
-        ws.value(r + 1, 0, "작성: FSS_Supporter " + java.time.LocalDate.now())
+        ws.value(r + 1, 0, "작성: FSS_Helper " + java.time.LocalDate.now())
         wb.finish()
     }
 }

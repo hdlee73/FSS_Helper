@@ -35,7 +35,7 @@ val generateBuildInfo by tasks.registering {
 
             object BuildInfo {
                 const val VERSION = "$version"
-                const val REPO = "hdlee73/FSS_supporter"
+                const val REPO = "hdlee73/FSS_Helper"
             }
             """.trimIndent()
         )
@@ -55,6 +55,8 @@ dependencies {
     implementation("net.java.dev.jna:jna-platform:5.17.0")
     // 엑셀 내보내기 (Apache POI보다 훨씬 가볍다)
     implementation("org.dhatim:fastexcel:0.19.0")
+    // 기업 개황 PDF 저장(맑은 고딕을 필요한 글자만 넣는다)
+    implementation("org.apache.pdfbox:pdfbox:3.0.3")
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
@@ -74,12 +76,12 @@ compose.desktop {
         nativeDistributions {
             // 설치 파일은 Inno Setup 으로 만든다(.github/workflows). 여기서는 앱 이미지(createDistributable)만 쓴다.
             targetFormats(TargetFormat.Exe)
-            packageName = "FSS_Supporter"
+            packageName = "FSS_Helper"
             packageVersion = appVersion
             description = "FSS 업무 도우미"
             vendor = "이현덕 with Claude"
             copyright = "© 2026 이현덕"
-            modules("java.net.http", "java.naming", "java.sql", "jdk.crypto.ec", "jdk.unsupported", "jdk.accessibility")
+            modules("java.net.http", "java.naming", "java.sql", "java.xml", "java.logging", "jdk.crypto.ec", "jdk.unsupported", "jdk.accessibility")
             windows {
                 iconFile.set(project.file("src/main/resources/icons/app.ico"))
                 menuGroup = "FSS Supporter"

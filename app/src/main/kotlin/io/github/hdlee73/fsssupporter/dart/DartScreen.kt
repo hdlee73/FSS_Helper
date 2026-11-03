@@ -63,6 +63,7 @@ import io.github.hdlee73.fsssupporter.ui.Pill
 import io.github.hdlee73.fsssupporter.ui.ScreenHeader
 import io.github.hdlee73.fsssupporter.ui.SearchField
 import io.github.hdlee73.fsssupporter.ui.Tone
+import kotlinx.coroutines.launch
 import io.github.hdlee73.fsssupporter.ui.ymdLabel
 import java.text.DecimalFormat
 
@@ -71,15 +72,15 @@ private val INT = DecimalFormat("#,##0")
 private fun eok(v: Double?) = v?.let { EOK.format(it) } ?: "-"
 
 @Composable
-fun DartScreen(model: DartModel, onOpenSettings: () -> Unit) {
+fun DartScreen(model: DartModel, onOpenSettings: () -> Unit, onMessage: (String) -> Unit = {}) {
     val selected by model.selected.collectAsState()
     LaunchedEffect(Unit) { model.ensureIndex() }
     Column(Modifier.fillMaxSize()) {
         ScreenHeader("기업 개황·공시", "금융감독원 전자공시(OpenDART)에서 기업개황, 최대주주, 재무, 공시 목록을 바로 조회합니다.")
         if (!model.hasKey) {
             Column(Modifier.padding(horizontal = 20.dp)) {
-                InfoBox("OpenDART 인증키가 필요합니다. opendart.fss.or.kr 에서 무료로 발급받아 설정에 입력해 주세요.")
-                TextButton(onClick = onOpenSettings) { Text("설정 열기") }
+                InfoBox("OpenDART 인증키가 필요합니다. opendart.fss.or.kr 에서 무료로 바로 발급됩니다.")
+                TextButton(onClick = onOpenSettings) { Text("인증키 받는 방법·입력") }
             }
         }
         Row(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -88,7 +89,7 @@ fun DartScreen(model: DartModel, onOpenSettings: () -> Unit) {
                 val c = selected
                 if (c == null) AppCard(Modifier.fillMaxSize()) {
                     EmptyState(Icons.Outlined.Business, "회사를 고르세요", "왼쪽에서 회사명이나 종목코드(6자리)로 찾거나 관심기업을 누르면 여기에서 보여 줍니다.")
-                } else CompanyPane(model, c)
+                } else CompanyPane(model, c, onMessage)
             }
         }
     }
@@ -161,7 +162,7 @@ private fun CorpRow(c: DartCorp, selected: Boolean, watched: Boolean, newCount: 
 }
 
 @Composable
-private fun CompanyPane(model: DartModel, c: DartCorp) {
+private fun CompanyPane(model: DartModel, c: DartCorp, onMessage: (String) -> Unit) {
     val tab by model.tab.collectAsState()
     val saved by model.saved.collectAsState()
     val watched = saved.watch.any { it.corp == c.corp }
@@ -172,6 +173,7 @@ private fun CompanyPane(model: DartModel, c: DartCorp) {
                 Text("고유번호 ${c.corp}" + (if (c.stock.isNotBlank()) " · 종목코드 ${c.stock}" else ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = { model.toggleWatch(c) }) { Icon(if (watched) Icons.Outlined.Star else Icons.Outlined.StarBorder, if (watched) "관심기업 해제" else "관심기업 추가") }
+            ExportButtons(model, c, onMessage)
             TextButton(onClick = { Os.browse("https://dart.fss.or.kr/dsab007/main.do?option=corp&textCrpNm=" + java.net.URLEncoder.encode(c.name, Charsets.UTF_8)) }) {
                 Icon(Icons.Outlined.OpenInNew, null, Modifier.size(15.dp)); Spacer(Modifier.width(4.dp)); Text("DART에서 보기")
             }
@@ -304,4 +306,23 @@ private fun FilingsView(model: DartModel) {
             }
         }
     }
+}
+
+
+/** 개황·지분·재무·공시를 한 문서로 저장 */
+@Composable
+private fun ExportButtons(model: DartModel, c: DartCorp, exportMessage: (String) -> Unit) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var busy by remember { mutableStateOf<String?>(null) }
+    fun save(ext: String) {
+        busy = ext
+        scope.launch {
+            runCatching { DartReport.save(model, c, ext) }
+                .onSuccess { exportMessage("저장했습니다: ${it.name}"); Os.open(it) }
+                .onFailure { exportMessage("저장하지 못했습니다: ${it.message}") }
+            busy = null
+        }
+    }
+    androidx.compose.material3.OutlinedButton(onClick = { save("hwpx") }, enabled = busy == null) { Text(if (busy == "hwpx") "만드는 중…" else "한글 저장") }
+    androidx.compose.material3.OutlinedButton(onClick = { save("pdf") }, enabled = busy == null) { Text(if (busy == "pdf") "만드는 중…" else "PDF 저장") }
 }

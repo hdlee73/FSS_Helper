@@ -87,7 +87,7 @@ class DartClient(private val keyProvider: () -> String) {
     private fun request(url: String): HttpRequest = HttpRequest.newBuilder(URI(url))
         .timeout(Duration.ofSeconds(45))
         // DART는 User-Agent가 없으면 오류 페이지로 돌려보낸다.
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FSS_Supporter")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FSS_Helper")
         .header("Accept-Language", "ko-KR,ko;q=0.9")
         .GET().build()
 

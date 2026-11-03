@@ -58,14 +58,14 @@ jobs:
       - name: Check runtime arch
         shell: pwsh
         run: |
-          $exe = "app/build/compose/binaries/main/app/FSS_Supporter/runtime/bin/java.dll"
+          $exe = "app/build/compose/binaries/main/app/FSS_Helper/runtime/bin/java.dll"
           $b = [IO.File]::ReadAllBytes($exe); $pe = [BitConverter]::ToInt32($b, 0x3C); $m = [BitConverter]::ToUInt16($b, $pe + 4)
           $want = if ("${{ matrix.arch }}" -eq "arm64") { 0xAA64 } else { 0x8664 }
           if ($m -ne $want) { throw ("런타임 아키텍처 불일치: 0x{0:X}" -f $m) }
       - uses: actions/upload-artifact@v4
         with:
           name: image-${{ matrix.arch }}
-          path: app/build/compose/binaries/main/app/FSS_Supporter
+          path: app/build/compose/binaries/main/app/FSS_Helper
           retention-days: 3
 
   setup:
@@ -88,12 +88,12 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
           foreach ($a in @("x64", "arm64")) {
-            & $iscc "/DAppVersion=$env:APP_VERSION" "/DArch=$a" "/DSourceDir=$pwd\images\image-$a" "/DOutputDir=$pwd\dist" installer\FSS_Supporter.iss
+            & $iscc "/DAppVersion=$env:APP_VERSION" "/DArch=$a" "/DSourceDir=$pwd\images\image-$a" "/DOutputDir=$pwd\dist" installer\FSS_Helper.iss
             if ($LASTEXITCODE -ne 0) { throw "ISCC 실패 ($a)" }
           }
           Get-ChildItem dist
       - uses: actions/upload-artifact@v4
         with:
-          name: FSS_Supporter-setup
+          name: FSS_Helper-setup
           path: dist/*.exe
           retention-days: 14

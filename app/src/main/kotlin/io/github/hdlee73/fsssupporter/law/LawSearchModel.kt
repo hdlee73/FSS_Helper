@@ -50,7 +50,14 @@ sealed interface VersionsState {
     data class Failed(val message: String) : VersionsState
 }
 
-/** 스마트 법령검색 화면 상태. FSS Insights 의 SearchViewModel 을 데스크톱용으로 옮긴 것. */
+/** 법률 도우미에서 위임 법령을 보여 주는 방식 */
+enum class LawView(val label: String, val hint: String) {
+    STACK("펼쳐 보기", "법률 아래로 시행령·시행규칙·감독규정·세칙을 차례로 펼칩니다"),
+    COMPARE("단계 비교", "위임 내용이 있는 단계만 열로 나란히 비교합니다(1~5단)"),
+    SPLIT("목록+본문", "왼쪽 목록에서 고르면 오른쪽에 본문을 보여 줍니다"),
+}
+
+/** 법률 도우미 화면 상태. FSS Insights 의 SearchViewModel 을 데스크톱용으로 옮긴 것. */
 class LawSearchModel(private val law: LawModule, private val settings: SettingsRepo, private val scope: CoroutineScope) {
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -74,6 +81,10 @@ class LawSearchModel(private val law: LawModule, private val settings: SettingsR
     /** 하위 법규를 위임받은 항 바로 아래에 붙여 보여 줄지 */
     private val _inline = MutableStateFlow(true)
     val inline: StateFlow<Boolean> = _inline.asStateFlow()
+
+    private val _view = MutableStateFlow(LawView.STACK)
+    val view: StateFlow<LawView> = _view.asStateFlow()
+    fun setView(v: LawView) { _view.value = v }
 
     private val backStack = ArrayDeque<Pair<LawUiState, LawDetail>>()
     private var job: Job? = null
@@ -169,8 +180,7 @@ class LawSearchModel(private val law: LawModule, private val settings: SettingsR
     }
 
     private fun defaultExpanded(tree: DelegationTree): Set<String> =
-        (tree.root.flatten() + tree.root.withParagraphPieces().flatten())
-            .filter { it.level == LawLevel.LAW || it.level == LawLevel.DECREE }.map { it.id }.toSet()
+        (tree.root.flatten() + tree.root.withParagraphPieces().flatten() + tree.cited.flatMap { it.flatten() }).map { it.id }.toSet()
 
     // ---------- 상세 ----------
 

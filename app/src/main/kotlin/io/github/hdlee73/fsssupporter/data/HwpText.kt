@@ -6,19 +6,47 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.Inflater
 import java.util.zip.ZipFile
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/** 한글 문서의 한 덩어리: 문단 또는 표 */
+@Serializable
+sealed interface HBlock
+
+/** 문단. [hasText]가 false면 글자 레코드가 없는 빈 문단(빈 줄) */
+@Serializable @SerialName("p")
+data class HPara(val text: String, val hasText: Boolean = true) : HBlock
+
+/** 표. 칸은 (행, 열)과 합친 칸 수를 가진다. */
+@Serializable @SerialName("t")
+data class HTable(val rows: Int, val cols: Int, val cells: List<HCell>) : HBlock
+
+@Serializable
+data class HCell(
+    val row: Int,
+    val col: Int,
+    val rowSpan: Int = 1,
+    val colSpan: Int = 1,
+    val blocks: List<HBlock> = emptyList(),
+    /** 칸 너비(HWPUNIT, 1/7200인치). 0이면 모름 */
+    val width: Int = 0,
+)
 
 /**
- * 한글 문서(HWP 5.0, HWPX)에서 글자만 뽑는다. 표 칸은 한 줄씩 나온다.
+ * 한글 문서(HWP 5.0, HWPX)를 문단·표 구조([HBlock])로 읽거나 글자만 뽑는다([extract], 표 칸은 한 줄씩).
  * HWP 5.0은 OLE 복합 문서 안의 BodyText/SectionN 스트림(압축된 레코드)에서 문단 글자(HWPTAG_PARA_TEXT)를 읽는다.
  */
 object HwpText {
     class HwpException(message: String) : Exception(message)
 
-    fun extract(file: File): String {
+    fun extract(file: File): String = flatten(read(file))
+
+    /** 문단·표 구조로 읽는다(표 칸의 행·열·합치기 포함). */
+    fun read(file: File): List<HBlock> {
         val head = file.inputStream().use { it.readNBytes(8) }
         return when {
             head.size >= 4 && head[0] == 0x50.toByte() && head[1] == 0x4B.toByte() -> hwpx(file)
-            head.size == 8 && head.contentEquals(OLE_MAGIC) -> hwp5(file.readBytes())
+            head.size == 8 && head.contentEquals(OLE_MAGIC) -> hwp5Blocks(file.readBytes())
             else -> throw HwpException("한글(HWP·HWPX) 문서가 아닙니다.")
         }
     }
@@ -26,22 +54,69 @@ object HwpText {
     private val OLE_MAGIC = byteArrayOf(0xD0.toByte(), 0xCF.toByte(), 0x11, 0xE0.toByte(), 0xA1.toByte(), 0xB1.toByte(), 0x1A, 0xE1.toByte())
 
     // ---------- HWPX ----------
-    private fun hwpx(file: File): String = ZipFile(file).use { zip ->
+    private fun hwpx(file: File): List<HBlock> = ZipFile(file).use { zip ->
         val sections = zip.entries().toList().filter { Regex("""Contents/section\d+\.xml""").matches(it.name) }
             .sortedBy { it.name.filter(Char::isDigit).toIntOrNull() ?: 0 }
         if (sections.isEmpty()) throw HwpException("HWPX 본문을 찾지 못했습니다.")
-        sections.joinToString("\n") { e ->
-            val xml = zip.getInputStream(e).readBytes().toString(Charsets.UTF_8)
-            xml.split("</hp:p>").joinToString("\n") { p ->
-                Regex("""<hp:t(?:\s[^>]*)?>([^<]*)</hp:t>""").findAll(p).joinToString("") { unescape(it.groupValues[1]) }
-            }
+        val f = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = false
+            runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+        }
+        sections.flatMap { e ->
+            val doc = zip.getInputStream(e).use { f.newDocumentBuilder().parse(it) }
+            xmlParas(doc.documentElement)
         }
     }
 
-    private fun unescape(s: String) = s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+    private fun org.w3c.dom.Node.kids(): List<org.w3c.dom.Element> =
+        (0 until childNodes.length).mapNotNull { childNodes.item(it) as? org.w3c.dom.Element }
+
+    private val org.w3c.dom.Element.local: String get() = localName ?: tagName.substringAfter(':')
+
+    /** 컨테이너 바로 아래 문단(hp:p)들을 블록으로 */
+    private fun xmlParas(container: org.w3c.dom.Element): List<HBlock> {
+        val out = mutableListOf<HBlock>()
+        container.kids().filter { it.local == "p" }.forEach { p ->
+            val text = StringBuilder()
+            val tables = mutableListOf<org.w3c.dom.Element>()
+            fun walk(el: org.w3c.dom.Element) {
+                when (el.local) {
+                    "t" -> text.append(el.textContent)
+                    "lineBreak" -> text.append('\n')
+                    "tab" -> text.append('\t')
+                    "tbl" -> tables += el
+                    "subList", "secPr", "ctrl" -> Unit
+                    else -> el.kids().forEach(::walk)
+                }
+            }
+            p.kids().forEach(::walk)
+            out += HPara(text.toString())
+            tables.forEach { tbl ->
+                val cells = tbl.kids().filter { it.local == "tr" }.flatMap { it.kids().filter { c -> c.local == "tc" } }.map { tc ->
+                    val addr = tc.kids().firstOrNull { it.local == "cellAddr" }
+                    val span = tc.kids().firstOrNull { it.local == "cellSpan" }
+                    val sub = tc.kids().firstOrNull { it.local == "subList" }
+                    val sz = tc.kids().firstOrNull { it.local == "cellSz" }
+                    HCell(
+                        row = addr?.getAttribute("rowAddr")?.toIntOrNull() ?: 0,
+                        col = addr?.getAttribute("colAddr")?.toIntOrNull() ?: 0,
+                        rowSpan = span?.getAttribute("rowSpan")?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                        colSpan = span?.getAttribute("colSpan")?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                        blocks = sub?.let(::xmlParas).orEmpty(),
+                        width = sz?.getAttribute("width")?.toIntOrNull() ?: 0,
+                    )
+                }
+                out += HTable(tbl.getAttribute("rowCnt").toIntOrNull() ?: (cells.maxOfOrNull { it.row + it.rowSpan } ?: 0),
+                    tbl.getAttribute("colCnt").toIntOrNull() ?: (cells.maxOfOrNull { it.col + it.colSpan } ?: 0), cells)
+            }
+        }
+        return out
+    }
 
     // ---------- HWP 5.0 ----------
-    fun hwp5(bytes: ByteArray): String {
+    fun hwp5(bytes: ByteArray): String = flatten(hwp5Blocks(bytes))
+
+    fun hwp5Blocks(bytes: ByteArray): List<HBlock> {
         val cfb = Cfb(bytes)
         val header = cfb.stream("FileHeader") ?: throw HwpException("HWP 머리 정보를 찾지 못했습니다.")
         val flags = if (header.size >= 40) ByteBuffer.wrap(header, 36, 4).order(ByteOrder.LITTLE_ENDIAN).int else 0
@@ -50,13 +125,11 @@ object HwpText {
         val compressed = flags and 0x1 != 0
         val sections = cfb.names().mapNotNull { n -> Regex("""BodyText/Section(\d+)""").matchEntire(n)?.let { it.groupValues[1].toInt() to n } }.sortedBy { it.first }
         if (sections.isEmpty()) throw HwpException("본문을 찾지 못했습니다.")
-        val sb = StringBuilder()
-        sections.forEach { (_, name) ->
-            var data = cfb.stream(name) ?: return@forEach
+        return sections.flatMap { (_, name) ->
+            var data = cfb.stream(name) ?: return@flatMap emptyList()
             if (compressed) data = inflate(data)
-            readRecords(data, sb)
+            parseRecords(data)
         }
-        return sb.toString()
     }
 
     private fun inflate(data: ByteArray): ByteArray {
@@ -73,17 +146,94 @@ object HwpText {
         return out.toByteArray()
     }
 
-    private fun readRecords(data: ByteArray, sb: StringBuilder) {
+    /** 레코드 머리(태그·수준·크기)를 차례로 읽어 문단·표 구조로 만든다. 표 칸은 LIST_HEADER(72)로 시작하고 그 칸의 문단은 같은 수준에 놓인다. */
+    private fun parseRecords(data: ByteArray): List<HBlock> {
         val bb = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+        val root = Frame.Body(0)
+        val stack = ArrayDeque<Frame>().apply { addLast(root) }
+        fun container(): Frame.Container = stack.lastOrNull { it is Frame.Container } as Frame.Container
+        fun closeTable(t: Frame.Table) {
+            stack.removeLast()
+            container().blocks += HTable(t.rows, t.cols, t.cells.toList())
+        }
         var i = 0
         while (i + 4 <= data.size) {
             val h = bb.getInt(i); i += 4
             val tag = h and 0x3FF
+            val level = (h ushr 10) and 0x3FF
             var size = (h ushr 20) and 0xFFF
             if (size == 0xFFF) { if (i + 4 > data.size) break; size = bb.getInt(i); i += 4 }
             if (size < 0 || i + size > data.size) break
-            if (tag == 67) paraText(bb, i, size, sb)
+            // 이 레코드를 담지 않는 칸·표를 닫는다
+            while (true) {
+                val top = stack.last()
+                when {
+                    top is Frame.Cell && (level < top.level || (level == top.level && tag == TAG_LIST_HEADER)) -> {
+                        stack.removeLast()
+                        (stack.last() as Frame.Table).cells += HCell(top.row, top.col, top.rowSpan, top.colSpan, top.blocks.toList(), top.width)
+                    }
+                    top is Frame.Table && level <= top.level -> closeTable(top)
+                    else -> break
+                }
+            }
+            when (tag) {
+                TAG_PARA_HEADER -> container().blocks += HPara("", hasText = false)
+                TAG_PARA_TEXT -> {
+                    val sb = StringBuilder()
+                    paraText(bb, i, size, sb)
+                    val c = container()
+                    val text = sb.toString().removeSuffix("\n")
+                    val last = c.blocks.lastOrNull()
+                    if (last is HPara && !last.hasText) c.blocks[c.blocks.size - 1] = HPara(text) else c.blocks += HPara(text)
+                }
+                TAG_CTRL_HEADER -> if (size >= 4 && bb.getInt(i) == TBL_ID) stack.addLast(Frame.Table(level))
+                TAG_TABLE -> (stack.last() as? Frame.Table)?.let { t ->
+                    if (size >= 8) { t.rows = bb.getShort(i + 4).toInt() and 0xFFFF; t.cols = bb.getShort(i + 6).toInt() and 0xFFFF }
+                }
+                TAG_LIST_HEADER -> (stack.last() as? Frame.Table)?.let { t ->
+                    if (level == t.level + 1 && size >= 16) {
+                        fun u16(o: Int) = bb.getShort(i + o).toInt() and 0xFFFF
+                        val width = if (size >= 20) bb.getInt(i + 16) else 0
+                        stack.addLast(Frame.Cell(level, row = u16(10), col = u16(8), colSpan = u16(12).coerceAtLeast(1), rowSpan = u16(14).coerceAtLeast(1), width = width.coerceAtLeast(0)))
+                    }
+                }
+            }
             i += size
+        }
+        while (stack.size > 1) {
+            when (val top = stack.last()) {
+                is Frame.Cell -> { stack.removeLast(); (stack.last() as Frame.Table).cells += HCell(top.row, top.col, top.rowSpan, top.colSpan, top.blocks.toList(), top.width) }
+                is Frame.Table -> closeTable(top)
+                else -> stack.removeLast()
+            }
+        }
+        return root.blocks
+    }
+
+    private sealed class Frame(val level: Int) {
+        sealed class Container(level: Int) : Frame(level) { val blocks = mutableListOf<HBlock>() }
+        class Body(level: Int) : Container(level)
+        class Cell(level: Int, val row: Int, val col: Int, val colSpan: Int, val rowSpan: Int, val width: Int) : Container(level)
+        class Table(level: Int) : Frame(level) { var rows = 0; var cols = 0; val cells = mutableListOf<HCell>() }
+    }
+
+    private const val TAG_PARA_HEADER = 66
+    private const val TAG_PARA_TEXT = 67
+    private const val TAG_CTRL_HEADER = 71
+    private const val TAG_LIST_HEADER = 72
+    private const val TAG_TABLE = 77
+    /** 'tbl ' 컨트롤 id(리틀 엔디언으로 읽은 값) */
+    private const val TBL_ID = ('t'.code shl 24) or ('b'.code shl 16) or ('l'.code shl 8) or ' '.code
+
+    /** 문단·표 구조를 예전과 같은 글자 흐름으로 편다(문단마다 줄바꿈, 표는 칸 순서대로). */
+    fun flatten(blocks: List<HBlock>): String = StringBuilder().also { flattenTo(blocks, it) }.toString()
+
+    private fun flattenTo(blocks: List<HBlock>, sb: StringBuilder) {
+        blocks.forEach { b ->
+            when (b) {
+                is HPara -> if (b.hasText) sb.append(b.text).append('\n')
+                is HTable -> b.cells.forEach { flattenTo(it.blocks, sb) }
+            }
         }
     }
 

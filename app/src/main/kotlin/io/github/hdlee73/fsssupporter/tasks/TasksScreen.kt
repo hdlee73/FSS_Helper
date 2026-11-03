@@ -116,7 +116,7 @@ class TasksUi {
 @Composable
 fun TasksScreen(store: TaskStore, ui: TasksUi, onOpenLaw: (String) -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("작업 관리", "진행 중인 검사·리포트·의견서와 일정을 한곳에서 관리합니다. 모든 내용은 이 PC에만 저장됩니다.") {
+        ScreenHeader("일정·할 일", "검사건 밖의 할 일(리포트·회의·보고 등)과 달력 일정을 관리합니다. 검사건의 착수·마감도 달력에 함께 보입니다.") {
             Button(onClick = {
                 val t = WorkTask(title = "새 작업", status = TaskStatus.IN_PROGRESS, start = LocalDate.now().toString())
                 store.upsert(t); ui.tab = 0; ui.selectedId = t.id

@@ -54,7 +54,7 @@ class Updater {
     private fun get(url: String, timeout: Long = 20): HttpResponse<ByteArray> {
         val req = HttpRequest.newBuilder(URI(url))
             .timeout(Duration.ofSeconds(timeout))
-            .header("User-Agent", "FSS_Supporter/${BuildInfo.VERSION}")
+            .header("User-Agent", "FSS_Helper/${BuildInfo.VERSION}")
             .header("Accept", "application/vnd.github+json, application/octet-stream, */*")
             .build()
         val res = http.send(req, HttpResponse.BodyHandlers.ofByteArray())
@@ -89,7 +89,7 @@ class Updater {
         val url = urls[asset.name] ?: throw UpdateException("설치 파일 ${asset.name}을(를) 찾지 못했습니다.")
         val dir = File(AppDirs.cache, "update").apply { mkdirs() }
         val out = File(dir, asset.name)
-        val req = HttpRequest.newBuilder(URI(url)).timeout(Duration.ofMinutes(10)).header("User-Agent", "FSS_Supporter/${BuildInfo.VERSION}").build()
+        val req = HttpRequest.newBuilder(URI(url)).timeout(Duration.ofMinutes(10)).header("User-Agent", "FSS_Helper/${BuildInfo.VERSION}").build()
         val res = http.send(req, HttpResponse.BodyHandlers.ofInputStream())
         if (res.statusCode() !in 200..299) throw UpdateException("설치 파일을 받지 못했습니다(${res.statusCode()}).")
         val total = res.headers().firstValueAsLong("Content-Length").orElse(asset.size).coerceAtLeast(1)

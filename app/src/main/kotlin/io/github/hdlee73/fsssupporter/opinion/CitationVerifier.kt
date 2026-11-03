@@ -34,7 +34,11 @@ data class CitationCheck(
     val article: Article? = null,
     /** 「정식 명칭」 제N조 */
     val suggestion: String? = null,
-)
+    /** 기준일 조문과 현행 조문이 다르면 현행 조문(기준일로 검증했을 때만) */
+    val current: Article? = null,
+)  {
+    val changedSince: Boolean get() = current != null
+}
 
 /**
  * 문서 속 "「법령명」 제N조" 인용을 모두 찾아, 국가법령정보에서 그 조문이 실제로 있는지·삭제되지 않았는지 확인한다.
@@ -81,7 +85,12 @@ class CitationVerifier(private val repository: LawRepository) {
                     a == null -> CitationCheck(c, Verdict.NO_ARTICLE, "${law.name}에 ${no.display}가 없어요($basis).", law.name, null, suggestion)
                     isDeleted(a) -> CitationCheck(c, Verdict.DELETED, "${no.display}는 삭제된 조문이에요($basis). 이관된 조문을 확인해 주세요.", law.name, a, suggestion)
                     base.replace(" ", "") != formalBase.replace(" ", "") -> CitationCheck(c, Verdict.ALIAS, "조문은 있어요($basis). 공식 문서에는 정식 명칭을 권합니다: $suggestion", law.name, a, suggestion)
-                    else -> CitationCheck(c, Verdict.OK, "${a.fullTitle} · $basis", law.name, a, suggestion)
+                    else -> {
+                        // 기준일로 볼 때는 현행 조문과 견줘 그 뒤에 바뀌었는지도 알려 준다.
+                        val now = if (asOf != null) runCatching { repository.getLawArticles(law, no).firstOrNull { it.number?.main == no.main && it.number?.branch == no.branch } }.getOrNull() else null
+                        val changed = now != null && squash(now.content) != squash(a.content)
+                        CitationCheck(c, Verdict.OK, "${a.fullTitle} · $basis" + if (changed) " · 그 뒤 개정되어 현행과 다름" else "", law.name, a, suggestion, if (changed) now else null)
+                    }
                 }
             }
         }
@@ -93,6 +102,8 @@ class CitationVerifier(private val repository: LawRepository) {
     companion object {
         private val LEVEL = Regex("""\s*(시행령|시행규칙)$""")
         private val DELETED_HEAD = Regex("""^제\s*\d+\s*조(?:\s*의\s*\d+)?\s*(?:\([^)]*\))?\s*삭제""")
+
+        fun squash(s: String) = s.replace(Regex("""\s+"""), "")
 
         fun splitLevel(name: String): Pair<String, String?> {
             val m = LEVEL.find(name) ?: return name.trim() to null

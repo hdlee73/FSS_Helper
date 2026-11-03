@@ -1,11 +1,12 @@
 package io.github.hdlee73.fsssupporter.ui
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Balance
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.Dashboard
-import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Rule
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.ManageSearch
@@ -15,17 +16,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 
-/** 왼쪽 메뉴의 목적지. [lower]는 메뉴 아래쪽 묶음(설정·앱 정보). */
-enum class Dest(val label: String, val icon: ImageVector, val lower: Boolean = false) {
+/** 메뉴 묶음: 주 업무, 보조 기능, 아래쪽(설정·앱 정보) */
+enum class NavGroup(val title: String) { MAIN(""), AUX("보조 기능"), LOWER("") }
+
+/** 왼쪽 메뉴의 목적지 */
+enum class Dest(val label: String, val icon: ImageVector, val group: NavGroup = NavGroup.MAIN) {
     DASHBOARD("대시보드", Icons.Outlined.Dashboard),
-    TASKS("작업 관리", Icons.Outlined.Assignment),
-    INSPECTION("검사 진행 관리", Icons.Outlined.FactCheck),
-    LAW("스마트 법령검색", Icons.Outlined.ManageSearch),
-    DART("기업 개황·공시", Icons.Outlined.Business),
-    OPINION("의견서 도우미", Icons.Outlined.EditNote),
-    SANCTION("제재 양정 계산기", Icons.Outlined.Balance),
-    SETTINGS("설정", Icons.Outlined.Settings, lower = true),
-    ABOUT("앱 정보", Icons.Outlined.Info, lower = true),
+    CASES("검사건", Icons.Outlined.FactCheck),
+    SCHEDULE("일정·할 일", Icons.Outlined.CalendarMonth),
+    VERIFY("문서 법규 검증", Icons.Outlined.Rule),
+    GUIDE("서식·매뉴얼", Icons.Outlined.MenuBook),
+    LAW("법률 도우미", Icons.Outlined.ManageSearch, NavGroup.AUX),
+    DART("기업 개황·공시", Icons.Outlined.Business, NavGroup.AUX),
+    SANCTION("양정 기준·계산기", Icons.Outlined.Balance, NavGroup.AUX),
+    SETTINGS("설정", Icons.Outlined.Settings, NavGroup.LOWER),
+    ABOUT("앱 정보", Icons.Outlined.Info, NavGroup.LOWER),
+    ;
+
+    val lower: Boolean get() = group == NavGroup.LOWER
 }
 
 /**

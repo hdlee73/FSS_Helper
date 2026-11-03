@@ -83,26 +83,27 @@ fun SanctionScreen(
     store: SanctionStore,
     ui: SanctionUi,
     onOpenLaw: (String) -> Unit,
-    onInsertToOpinion: (String) -> Unit,
     onMessage: (String) -> Unit,
 ) {
     val data by store.data.collectAsState()
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("제재 양정 계산기", "기준금액·위반 정도·가중·감경 사유를 넣으면 산정 과정을 단계별로 보여 주고, 조치안에 그대로 붙일 수 있습니다.")
-        TabRow(selectedTabIndex = ui.tab, modifier = Modifier.padding(horizontal = 20.dp).width(360.dp)) {
-            Tab(ui.tab == 0, { ui.tab = 0; ui.reset() }, text = { Text("과징금·과태료") })
-            Tab(ui.tab == 1, { ui.tab = 1; ui.reset() }, text = { Text("임원·직원·기관 제재") })
+        ScreenHeader("양정 기준·계산기", "검사건의 지적사항·행위자별 양정에 쓰는 기준을 고치고, 한 건을 따로 계산해 볼 수 있습니다. 검사건별 양정은 검사건 > 지적사항·제재에서 합니다.")
+        TabRow(selectedTabIndex = ui.tab, modifier = Modifier.padding(horizontal = 20.dp).width(420.dp)) {
+            Tab(ui.tab == 0, { ui.tab = 0; ui.fineId = "fine-penalty"; ui.gradeIndex = 0; ui.reset() }, text = { Text("과징금") })
+            Tab(ui.tab == 1, { ui.tab = 1; ui.fineId = "fine-fine"; ui.gradeIndex = 0; ui.reset() }, text = { Text("과태료") })
+            Tab(ui.tab == 2, { ui.tab = 2; ui.reset() }, text = { Text("임원·직원·기관 제재") })
         }
         Row(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (ui.tab == 0) {
-                val profiles = store.fines(data)
+            if (ui.tab <= 1) {
+                val kind = if (ui.tab == 0) "과징금" else "과태료"
+                val profiles = store.fines(data).filter { it.kind == kind }.ifEmpty { store.fines(data) }
                 val p = profiles.firstOrNull { it.id == ui.fineId } ?: profiles.first()
                 FineInputs(store, p, profiles, ui, onOpenLaw, Modifier.weight(1f).fillMaxHeight())
                 val result = SanctionCalc.fine(p, FineInput(ui.directBase.filter(Char::isDigit).toLongOrNull(), ui.violation.filter(Char::isDigit).toLongOrNull(), ui.gradeIndex, ui.agg.toSet(), ui.mit.toSet()))
                 val reasons = (p.aggravations.filter { it.id in ui.agg }.map { "가중: ${it.label}" } + p.mitigations.filter { it.id in ui.mit }.map { "감경: ${it.label}" })
                 ResultPanel("${p.kind} 산정", p.name, p.basis, result.lines, reasons, SanctionCalc.won(result.final),
                     warn = if (result.limited) "법정 최고한도로 제한됐습니다." else null,
-                    onInsertToOpinion, onMessage, Modifier.width(380.dp).fillMaxHeight())
+                    onMessage, Modifier.width(380.dp).fillMaxHeight())
             } else {
                 val profiles = store.levels(data)
                 val p = profiles.firstOrNull { it.id == ui.levelId } ?: profiles.first()
@@ -111,7 +112,7 @@ fun SanctionScreen(
                 val reasons = (p.aggravations.filter { it.id in ui.agg }.map { "가중: ${it.label}" } + p.mitigations.filter { it.id in ui.mit }.map { "감경: ${it.label}" })
                 ResultPanel("${p.target} 제재 양정", p.name, p.basis, result.lines, reasons, result.final,
                     warn = if (result.clipped) "단계 범위 끝에서 멈췄습니다." else null,
-                    onInsertToOpinion, onMessage, Modifier.width(380.dp).fillMaxHeight())
+                    onMessage, Modifier.width(380.dp).fillMaxHeight())
             }
         }
     }
@@ -210,7 +211,7 @@ private fun FactorList(title: String, cap: String, factors: List<Factor>, picked
 @Composable
 private fun ResultPanel(
     title: String, profileName: String, basis: String, lines: List<Pair<String, String>>, reasons: List<String>, headline: String, warn: String?,
-    onInsertToOpinion: (String) -> Unit, onMessage: (String) -> Unit, modifier: Modifier,
+    onMessage: (String) -> Unit, modifier: Modifier,
 ) {
     val scope = rememberCoroutineScope()
     AppCard(modifier) {
@@ -227,7 +228,6 @@ private fun ResultPanel(
             }
             HorizontalDivider()
             val text = SanctionCalc.summary(title, profileName, basis, lines, reasons)
-            Button(onClick = { onInsertToOpinion(text) }, modifier = Modifier.fillMaxWidth()) { Text("조치안에 넣기") }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { Os.copy(text); onMessage("산정 내용을 복사했습니다.") }) { Icon(Icons.Outlined.ContentCopy, null); Text(" 복사") }
                 OutlinedButton(onClick = {

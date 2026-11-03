@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: FSS_Supporter-setup
+          name: FSS_Helper-setup
           path: dist
       - name: Sign manifest
         env:
@@ -47,9 +47,9 @@ jobs:
           set -euo pipefail
           if [ -z "${UPDATE_SIGNING_KEY}" ]; then echo "UPDATE_SIGNING_KEY 시크릿이 없습니다."; exit 1; fi
           cd dist
-          asset() { f="FSS_Supporter-${VERSION}-$1-Setup.exe"; printf '"%s":{"name":"%s","sha256":"%s","size":%s}' "$1" "$f" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")"; }
+          asset() { f="FSS_Helper-${VERSION}-$1-Setup.exe"; printf '"%s":{"name":"%s","sha256":"%s","size":%s}' "$1" "$f" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")"; }
           printf '{"version":"%s","published":"%s","notes":"%s","assets":{%s,%s}}' \
-            "$VERSION" "$(date -u +%Y-%m-%d)" "FSS_Supporter ${VERSION}" "$(asset x64)" "$(asset arm64)" > latest.json
+            "$VERSION" "$(date -u +%Y-%m-%d)" "FSS_Helper ${VERSION}" "$(asset x64)" "$(asset arm64)" > latest.json
           umask 077
           printf '%s\n' "$UPDATE_SIGNING_KEY" > /tmp/key.pem
           openssl pkeyutl -sign -inkey /tmp/key.pem -rawin -in latest.json -out sig.bin
@@ -71,4 +71,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/*.exe dist/latest.json dist/latest.json.sig \
-            -R "${GITHUB_REPOSITORY}" --title "FSS_Supporter ${GITHUB_REF_NAME}" --generate-notes
+            -R "${GITHUB_REPOSITORY}" --title "FSS_Helper ${GITHUB_REF_NAME}" --generate-notes

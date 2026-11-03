@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.hdlee73.fsssupporter.dart.DartModel
 import io.github.hdlee73.fsssupporter.data.AppDirs
+import io.github.hdlee73.fsssupporter.data.KeyFile
 import io.github.hdlee73.fsssupporter.data.SettingsRepo
 import io.github.hdlee73.fsssupporter.data.ThemeMode
 import io.github.hdlee73.fsssupporter.law.LawModule
@@ -64,31 +65,22 @@ fun SettingsScreen(settings: SettingsRepo, law: LawModule, dart: DartModel, pref
     val s by settings.state.collectAsState()
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("설정", "인증키는 이 PC의 Windows 계정으로 암호화해 저장합니다(다른 PC·계정에서는 열리지 않음).")
+        ScreenHeader("설정", "인증키는 이 앱 안에 저장하되, 이 PC의 Windows 계정으로 암호화합니다(다른 PC·계정에서는 열리지 않음). 저장소(깃허브)에는 들어가지 않습니다.")
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp).widthIn(max = 860.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             AppCard(Modifier.fillMaxWidth()) {
-                CardTitle("국가법령정보 Open API") { Pill(if (settings.lawOc.isNotBlank()) "연결됨" else "데모 데이터", if (settings.lawOc.isNotBlank()) Tone.OK else Tone.WARN) }
-                Text("open.law.go.kr에서 신청한 OC(보통 이메일 아이디)를 넣습니다. 내부망에서도 www.law.go.kr로 연결됩니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                KeyField("OC", settings.lawOc, onSave = { settings.setLawOc(it); onMessage("법령 OC를 저장했습니다.") }) {
-                    scope.launch {
-                        val r = runCatching { law.repository.searchLaws("은행법") }
-                        onMessage(r.fold({ if (it.isNotEmpty()) "법령 연결 확인: '은행법' ${it.size}건" else "응답은 왔지만 결과가 없습니다. OC를 확인하세요." }, { "연결 실패: ${it.message}" }))
-                    }
-                }
-                TextButton(onClick = { Os.browse("https://open.law.go.kr/LSO/openApi/guideList.do") }) { Text("OC 신청 안내 열기") }
+                CardTitle("국가법령정보 OC · 법률 도우미·문서 법규 검증에 필요") { Pill(if (settings.lawOc.isNotBlank()) "저장됨" else "데모 데이터", if (settings.lawOc.isNotBlank()) Tone.OK else Tone.WARN) }
+                KeyGuideBody(KeyKind.LAW, settings.lawOc, onSave = { settings.setLawOc(it); onMessage("법령 OC를 저장했습니다.") }, onTest = { testLaw(law) })
             }
 
             AppCard(Modifier.fillMaxWidth()) {
-                CardTitle("OpenDART") { Pill(if (dart.hasKey) "연결됨" else "키 없음", if (dart.hasKey) Tone.OK else Tone.WARN) }
-                Text("opendart.fss.or.kr에서 발급받은 인증키(40자)를 넣습니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                KeyField("인증키", settings.dartKey, onSave = { settings.setDartKey(it); onMessage("DART 인증키를 저장했습니다. 회사 목록을 받아 옵니다."); dart.ensureIndex(force = true) }) {
-                    dart.ensureIndex(force = true); onMessage("회사 목록을 다시 받는 중입니다. 기업 개황·공시 화면에서 결과를 확인하세요.")
-                }
-                TextButton(onClick = { Os.browse("https://opendart.fss.or.kr/uss/umt/EgovMberInsertView.do") }) { Text("인증키 신청 열기") }
+                CardTitle("OpenDART 인증키 · 기업 개황·공시에 필요") { Pill(if (dart.hasKey) "저장됨" else "키 없음", if (dart.hasKey) Tone.OK else Tone.WARN) }
+                KeyGuideBody(KeyKind.DART, settings.dartKey, onSave = { settings.setDartKey(it); onMessage("DART 인증키를 저장했습니다. 회사 목록을 받아 옵니다."); dart.ensureIndex(force = true) }, onTest = { testDart(dart) })
             }
+
+            KeyTransferCard(settings, onMessage)
 
             AppCard(Modifier.fillMaxWidth()) {
                 CardTitle("법령 저장본 (오프라인 대비)")
@@ -133,8 +125,8 @@ fun SettingsScreen(settings: SettingsRepo, law: LawModule, dart: DartModel, pref
                 CardTitle("업데이트")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("자동으로 새 버전 확인", style = MaterialTheme.typography.bodyMedium)
-                        Text("인터넷이 되는 PC에서 하루 한 번 확인합니다. 내부망 PC는 앱 정보의 '파일로 설치'를 쓰세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("자동으로 새 버전 확인 (기본 끔)", style = MaterialTheme.typography.bodyMedium)
+                        Text("내부망에서 쓰는 앱이라 기본으로 꺼 두었습니다. 새 버전은 앱 정보의 '업데이트 확인' 또는 '파일로 설치'로 직접 설치합니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(s.autoUpdate, { v -> settings.update { it.copy(autoUpdate = v) } })
                 }
@@ -142,29 +134,56 @@ fun SettingsScreen(settings: SettingsRepo, law: LawModule, dart: DartModel, pref
 
             AppCard(Modifier.fillMaxWidth()) {
                 CardTitle("내 자료")
-                Text("작업·일정·초안·양정 기준: ${AppDirs.root.absolutePath}\n내보낸 파일(HWPX·DOCX·XLSX): ${AppDirs.exports.absolutePath}", style = MaterialTheme.typography.bodySmall)
+                Text("검사건·일정·지적사항·양정 기준·가져온 서식: ${AppDirs.root.absolutePath}\n검사건 문서·내보낸 파일(HWP·HWPX·PDF·XLSX): ${AppDirs.exports.absolutePath}", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { Os.open(AppDirs.root) }) { Text("자료 폴더 열기") }
                     OutlinedButton(onClick = { AppDirs.exports.mkdirs(); Os.open(AppDirs.exports) }) { Text("내보낸 파일 폴더 열기") }
                 }
-                InfoBox("자료는 이 PC에만 저장되고 외부로 보내지 않습니다. PC를 옮길 때는 자료 폴더를 통째로 복사하세요(인증키는 새 PC에서 다시 입력).")
+                InfoBox("자료는 이 PC에만 저장되고 외부로 보내지 않습니다. PC를 옮길 때는 두 폴더를 통째로 복사하고, 인증키는 '인증키 파일로 옮기기'로 옮기세요.")
             }
         }
     }
 }
 
+suspend fun testLaw(law: LawModule): String =
+    runCatching { law.repository.searchLaws("은행법") }.fold(
+        { if (it.isNotEmpty()) "연결됐습니다: '은행법' ${it.size}건" else "응답은 왔지만 결과가 없습니다. OC와 신청한 IP를 확인하세요." },
+        { "연결 실패: ${it.message} (내부망이면 www.law.go.kr 접속이 허용되는지 확인하세요)" },
+    )
+
+suspend fun testDart(dart: DartModel): String =
+    runCatching { dart.client.company("00126380") }.fold({ "연결됐습니다: ${it.name}" }, { "연결 실패: ${it.message}" })
+
+/** 인증키를 비밀번호로 잠근 파일로 내보내고, 다른 PC(내부망 PC 등)에서 불러온다. */
 @Composable
-private fun KeyField(label: String, current: String, onSave: (String) -> Unit, onTest: () -> Unit) {
-    var text by remember { mutableStateOf(current) }
-    var show by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = text, onValueChange = { text = it.trim() }, label = { Text(label) }, singleLine = true,
-            modifier = Modifier.weight(1f),
-            visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = { IconButton(onClick = { show = !show }) { Icon(if (show) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (show) "가리기" else "보기") } },
-        )
-        Button(onClick = { onSave(text) }, enabled = text != current) { Text("저장") }
-        OutlinedButton(onClick = onTest, enabled = current.isNotBlank()) { Text("연결 확인") }
+private fun KeyTransferCard(settings: SettingsRepo, onMessage: (String) -> Unit) {
+    var pw by remember { mutableStateOf("") }
+    AppCard(Modifier.fillMaxWidth()) {
+        CardTitle("인증키 파일로 옮기기")
+        Text("인터넷 PC에서 받은 키를 내부망 PC로 옮길 때 씁니다. 정한 비밀번호로 암호화(AES-256)한 .fsskey 파일을 만들고, 다른 PC에서 같은 비밀번호로 불러옵니다. 파일과 비밀번호는 따로 전달하세요.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(pw, { pw = it }, Modifier.weight(1f), singleLine = true, label = { Text("파일 비밀번호(6자 이상)") }, visualTransformation = PasswordVisualTransformation())
+            Button(enabled = pw.length >= 6 && (settings.lawOc.isNotBlank() || settings.dartKey.isNotBlank()), onClick = {
+                val dialog = java.awt.FileDialog(null as java.awt.Frame?, "인증키 파일 저장", java.awt.FileDialog.SAVE).apply { file = "FSS_Helper_키.fsskey"; isVisible = true }
+                val dir = dialog.directory; val name = dialog.file
+                if (dir != null && name != null) {
+                    runCatching { java.io.File(dir, if (name.endsWith(".fsskey")) name else "$name.fsskey").writeText(KeyFile.seal(KeyFile.Keys(settings.lawOc, settings.dartKey), pw)) }
+                        .onSuccess { onMessage("인증키 파일을 저장했습니다.") }.onFailure { onMessage("저장하지 못했습니다: ${it.message}") }
+                }
+            }) { Text("파일로 내보내기") }
+            OutlinedButton(enabled = pw.isNotEmpty(), onClick = {
+                val dialog = java.awt.FileDialog(null as java.awt.Frame?, "인증키 파일 고르기", java.awt.FileDialog.LOAD).apply { setFilenameFilter { _, n -> n.endsWith(".fsskey") }; isVisible = true }
+                val dir = dialog.directory; val name = dialog.file
+                if (dir != null && name != null) {
+                    runCatching { KeyFile.open(java.io.File(dir, name).readText(), pw) }
+                        .onSuccess { k ->
+                            if (k.lawOc.isNotBlank()) settings.setLawOc(k.lawOc)
+                            if (k.dartKey.isNotBlank()) settings.setDartKey(k.dartKey)
+                            onMessage("인증키를 불러와 이 PC용으로 다시 암호화해 저장했습니다.")
+                        }.onFailure { onMessage(it.message ?: "불러오지 못했습니다.") }
+                }
+            }) { Text("파일에서 불러오기") }
+        }
     }
 }

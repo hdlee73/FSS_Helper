@@ -38,21 +38,22 @@ import io.github.hdlee73.fsssupporter.ui.ScreenHeader
 import io.github.hdlee73.fsssupporter.ui.Tone
 import java.io.File
 
-const val APP_NAME = "FSS_Supporter"
+const val APP_NAME = "FSS_Helper"
 const val AUTHOR = "이현덕 with Claude"
 const val AUTHOR_EMAIL = "hdlee73@gmail.com"
 const val AUTHOR_HOME = "https://hdlee73.github.io/Home/"
 
 private val GUIDE = listOf(
-    "처음 설정" to "설정에서 국가법령정보 OC와 OpenDART 인증키를 넣고 '연결 확인'을 누르세요. 키가 없으면 법령은 데모 데이터로 동작합니다. 인터넷이 될 때 '주요 금융법령 미리 받기'를 해 두면 연결이 불안정해도 저장본으로 볼 수 있습니다.",
-    "대시보드" to "진행 중인 작업, 기한이 지난 작업, 14일 안의 일정·마감, 관심기업 새 공시, 최근 법령 검색을 한눈에 봅니다. 숫자 카드를 누르면 해당 화면으로 갑니다.",
-    "작업 관리" to "검사·리포트·의견서 작업을 등록하고 상태·기한·체크리스트·관련 법령을 관리합니다. 달력 탭에서 일정을 넣으면 대시보드에 함께 보입니다.",
-    "검사 진행 관리" to "검사품질관리 매뉴얼의 단계(검사준비 → 현장검사 → 검사결과 처리 → 사후관리)대로 점검 항목을 체크합니다. 착수일·현장검사 종료일을 넣으면 사전예고·검사반 편성 등 단계별 기한을 계산하고, 단계마다 관련 서식(제2-4호 검사사전예고 통지서 등)을 '작성'으로 바로 초안으로 엽니다. 매뉴얼 탭에서 매뉴얼·서식 HWP를 가져오면 원문을 단계별로 볼 수 있습니다(이 PC에만 저장).",
-    "스마트 법령검색" to "'자본시장법 제54조', '지배구조법 내부통제'처럼 약칭과 조문으로 찾습니다. 법률-시행령-시행규칙-감독규정으로 이어지는 위임 관계를 나무 모양으로 보여 주고, 기준일을 넣으면 그날 시행 중이던 조문을 봅니다. '의견서에 넣기'로 조문을 초안에 바로 붙입니다.",
-    "기업 개황·공시" to "회사 이름이나 종목코드로 찾아 기업개황·최대주주·재무·공시를 봅니다. ☆로 관심기업에 넣으면 새 공시 건수를 알려 줍니다.",
-    "의견서 도우미" to "서식을 골라 초안을 쓰고 '인용 검증'을 누르면 글 속의 「법령」 제N조가 실제로 있는지, 삭제되지 않았는지, 정식 명칭인지 확인합니다. 위반 당시 기준일로도 검증할 수 있습니다. 한글(HWPX)·Word(DOCX)로 내보냅니다.",
-    "제재 양정 계산기" to "과징금·과태료는 위반 관련 금액(또는 법정 최고한도) × 부과기준율에 가중·감경을 차례로 적용하고 법정 한도·끝수를 처리합니다. 임원·직원·기관 제재는 기본 양정에서 가중·감경 단계를 더하고 뺍니다. 기본 수치는 예시이므로 '기준 고치기'로 규정 별표에 맞추세요.",
-    "뒤로가기·단축키" to "Alt+← 또는 마우스 뒤로 버튼으로 직전 화면(검색 결과·회사 등)으로 돌아갑니다. Ctrl+B 메뉴 접기, Ctrl+K 법령검색, Ctrl+1~7 메뉴 이동.",
+    "처음 설정" to "법률 도우미·문서 법규 검증은 국가법령정보 OC, 기업 개황·공시는 OpenDART 인증키가 필요합니다. 키 없이 그 메뉴를 처음 열면 발급 방법과 입력 칸이 함께 뜹니다(설정에서도 가능). 키는 이 PC의 Windows 계정으로 암호화해 앱 안에만 저장합니다. 내부망 PC로는 설정 > '인증키 파일로 옮기기'로 옮깁니다.",
+    "서식·매뉴얼 가져오기" to "서식·매뉴얼 > 가져오기에서 검사품질관리 매뉴얼과 검사관련 서식 한글 파일을 한 번 고르면, 원본 사본을 이 PC에 두고 절·서식별로 나눕니다(외부로 보내지 않음).",
+    "검사건" to "검사건마다 ① 진행 단계(검사준비 → 현장검사 → 결과 처리 → 사후관리, 착수일·종료일 기준 기한 계산) ② 지적사항·제재 ③ 문서·서식 ④ 메모·할 일을 관리합니다. 내가 하지 않는 단계는 '생략' 또는 '다른 팀 담당'으로 넘기면 진행률에서 빠집니다. 검사건은 오른쪽 위 휴지통으로 지웁니다.",
+    "지적사항·제재" to "지적사항마다 위반 법규·사실관계·조치 구분을 적고, 기관 제재와 기관 과징금·과태료를 따로 넣습니다. 관련 임직원(행위자·보조자·지시·감독자)을 사람마다 넣으면 임원·직원 기준으로 양정(가중·감경, 사전통지 표기)과 개인 과태료를 계산하고, 조치 명세를 한글·엑셀로 저장합니다.",
+    "서식 작성" to "단계의 관련 서식에서 '작성'을 누르면 이 PC의 한글이 원본 서식 부분만 잘라 새 파일로 저장해 엽니다(표·글꼴·쪽 설정이 원본 그대로). 파일은 문서\\FSS_Helper\\검사건 폴더에 검사건별로 모입니다. 처음 한 번 한글이 접근 허용을 물으면 '모두 허용'을 누르세요.",
+    "문서 법규 검증" to "이미 작성한 의견서·조치안·검사서(HWP·HWPX)를 불러와 기준일(위반행위일 등)을 넣으면, 인용한 「법령」 제N조가 그날 시행 중이던 조문과 맞는지, 삭제·없는 조문은 아닌지, 그 뒤 개정됐는지 알려 줍니다.",
+    "법률 도우미 (보조)" to "'자본시장법 제54조'처럼 찾으면 법률-시행령-시행규칙-감독규정-세칙을 '펼쳐 보기'(아래로 펼치고 접기) 또는 '단계 비교'(위임이 있는 단계만 1~5단 비교)로 봅니다. 기준일을 넣으면 그날 시행 조문을 봅니다.",
+    "기업 개황·공시 (보조)" to "회사 이름이나 종목코드로 찾아 기업개황·최대주주·재무·공시를 보고, '한글 저장'·'PDF 저장'으로 한 문서에 묶어 저장합니다. ☆로 관심기업에 넣으면 새 공시 건수를 알려 줍니다.",
+    "양정 기준·계산기 (보조)" to "검사건 양정에 쓰는 과징금·과태료·임원·직원·기관 기준을 근거 규정 별표에 맞춰 고치고, 한 건을 따로 계산해 봅니다. 기본 수치는 예시입니다.",
+    "뒤로가기·단축키" to "Alt+← 또는 마우스 뒤로 버튼으로 직전 화면으로 돌아갑니다. Ctrl+B 메뉴 접기, Ctrl+K 법률 도우미, Ctrl+1~8 메뉴 이동.",
 )
 
 @Composable
@@ -70,7 +71,7 @@ fun AboutScreen(update: UpdateModel, onInstallAndExit: () -> Unit, onMessage: (S
                     Column {
                         Text(APP_NAME, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text("버전 ${BuildInfo.VERSION} · Windows ${Os.archLabel}", style = MaterialTheme.typography.bodyMedium)
-                        Text("법령 조회 · 기업 공시 · 의견서 작성 · 제재 양정 · 작업 관리", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("검사건별 진행 관리 · 지적사항·행위자별 제재 양정 · 원본 서식 작성 · 문서 법규 검증", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 LabelValue("만든이", AUTHOR)
@@ -86,6 +87,8 @@ fun AboutScreen(update: UpdateModel, onInstallAndExit: () -> Unit, onMessage: (S
 
             AppCard(Modifier.fillMaxWidth()) {
                 CardTitle("업데이트") { Pill("서명 확인", Tone.OK) }
+                Text("내부망에서 쓰는 앱이라 자동 업데이트는 꺼져 있습니다. 인터넷 PC에서는 '업데이트 확인'으로, 내부망 PC에서는 받은 파일로 직접 설치합니다.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 when (val s = state) {
                     UpdateState.Idle -> Text("현재 버전 ${BuildInfo.VERSION}", style = MaterialTheme.typography.bodyMedium)
                     UpdateState.Checking -> { Text("확인하는 중…"); LinearProgressIndicator(Modifier.fillMaxWidth()) }
@@ -117,7 +120,7 @@ fun AboutScreen(update: UpdateModel, onInstallAndExit: () -> Unit, onMessage: (S
                         pickManifest()?.let { update.fromFile(it) } ?: onMessage("파일을 고르지 않았습니다.")
                     }) { Text("파일로 설치 (내부망)") }
                 }
-                InfoBox("내부망 PC: 인터넷 PC에서 릴리스의 설치 파일(FSS_Supporter-버전-${if (Os.isArm) "arm64" else "x64"}-Setup.exe), latest.json, latest.json.sig 세 파일을 한 폴더에 받아 옮긴 뒤 '파일로 설치'에서 latest.json을 고르세요. 공식 서명이 없는 파일은 설치하지 않습니다.")
+                InfoBox("내부망 PC: 인터넷 PC에서 릴리스의 설치 파일(FSS_Helper-버전-${if (Os.isArm) "arm64" else "x64"}-Setup.exe), latest.json, latest.json.sig 세 파일을 한 폴더에 받아 옮긴 뒤 '파일로 설치'에서 latest.json을 고르세요. 공식 서명이 없는 파일은 설치하지 않습니다.")
             }
 
             AppCard(Modifier.fillMaxWidth()) {

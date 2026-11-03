@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,12 +23,16 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.ManageSearch
@@ -38,6 +43,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hdlee73.everylaw.core.domain.CompareTable
 import com.hdlee73.everylaw.core.domain.HwpxExporter
 import com.hdlee73.everylaw.core.domain.HwpxOptions
 import com.hdlee73.everylaw.core.domain.TreeFilter
@@ -99,8 +107,8 @@ fun LawScreen(
     model: LawSearchModel,
     settings: SettingsRepo,
     cache: LawCache,
-    onInsertToOpinion: (String) -> Unit,
     onMessage: (String) -> Unit,
+    onKeyGuide: () -> Unit = {},
 ) {
     val query by model.query.collectAsState()
     val asOf by model.asOf.collectAsState()
@@ -111,15 +119,15 @@ fun LawScreen(
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(
-            "스마트 법령검색",
+            "법률 도우미",
             subtitle = when {
-                model.isSample -> "데모 데이터로 동작 중입니다. 설정에서 국가법령정보 OC를 입력하면 실제 법령을 조회합니다."
+                model.isSample -> "데모 데이터로 동작 중입니다. 국가법령정보 OC를 받아 넣으면 실제 법령을 조회합니다(오른쪽 'OC 받는 방법')."
                 offline -> "www.law.go.kr 연결이 안 돼 저장해 둔 자료를 보여 주고 있습니다."
-                else -> "법령명 + 조문은 위임 트리(법률→시행령→시행규칙→감독규정→세칙)로, 단어만 넣으면 키워드 통합 검색으로 찾습니다."
+                else -> "법령명 + 조문은 법률→시행령→시행규칙→감독규정→세칙을 펼쳐 보기·단계 비교로, 단어만 넣으면 키워드 통합 검색으로 찾습니다."
             },
         ) {
             if (offline) Pill("오프라인 캐시", Tone.WARN)
-            if (model.isSample) Pill("데모", Tone.WARN)
+            if (model.isSample) { Pill("데모", Tone.WARN); TextButton(onClick = onKeyGuide) { Text("OC 받는 방법") } }
         }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -154,8 +162,8 @@ fun LawScreen(
             is LawUiState.Error -> Column(Modifier.padding(horizontal = 20.dp)) {
                 ErrorBox(s.message) { if (s.canRetry) TextButton(onClick = model::retry) { Text("다시 시도") } }
             }
-            is LawUiState.Tree -> TreeView(model, s, app.favoriteLaw, settings, onInsertToOpinion, onMessage)
-            is LawUiState.Keyword -> KeywordView(model, s, onInsertToOpinion, onMessage)
+            is LawUiState.Tree -> TreeView(model, s, app.favoriteLaw, settings, onMessage)
+            is LawUiState.Keyword -> KeywordView(model, s, onMessage)
         }
     }
 
@@ -215,19 +223,241 @@ private fun levelTone(level: LawLevel): Tone = when (level) {
     else -> Tone.NEUTRAL
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TreeView(
     model: LawSearchModel,
     s: LawUiState.Tree,
     favorites: List<String>,
     settings: SettingsRepo,
-    onInsertToOpinion: (String) -> Unit,
     onMessage: (String) -> Unit,
 ) {
+    val view by model.view.collectAsState()
+    val scope = rememberCoroutineScope()
+    val tree = s.tree
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // ── 공통 머리: 법령 이름, 즐겨찾기·연혁, 보기 방식, 저장
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(tree.law.name + " " + tree.query.target, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    (tree.version?.let { "${it.effectiveDateLabel} 시행 버전" } ?: "현행") + " · 하위 규정 ${tree.root.descendantCount}건" +
+                        levelSummary(tree.root).let { if (it.isBlank()) "" else " · $it" },
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val fav = tree.query.raw in favorites
+            IconButton(onClick = { settings.toggleFavoriteLaw(tree.query.raw) }) {
+                Icon(if (fav) Icons.Outlined.Star else Icons.Outlined.StarBorder, if (fav) "즐겨찾기 해제" else "즐겨찾기")
+            }
+            IconButton(onClick = model::openVersions) { Icon(Icons.Outlined.History, "시행 연혁") }
+            OutlinedButton(onClick = {
+                scope.launch {
+                    val file = runCatching { exportHwpx(tree) }.getOrElse { onMessage("한글 파일을 만들지 못했어요: ${it.message}"); null }
+                    if (file != null) { onMessage("한글 파일로 저장했어요: ${file.name}"); Os.open(file.parentFile) }
+                }
+            }) { Text("한글(HWPX) 저장") }
+            OutlinedButton(onClick = { Os.copy(treeAsText(tree)); onMessage("위임 법령 전체를 복사했어요.") }) { Text("전체 복사") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            LawView.entries.forEach { v -> FilterChip(view == v, { model.setView(v) }, label = { Text(v.label) }) }
+            Text(view.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        tree.warnings.forEach { InfoBox(it) }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when (view) {
+                LawView.STACK -> StackView(model, s, onMessage)
+                LawView.COMPARE -> CompareView(tree, onMessage)
+                LawView.SPLIT -> SplitView(model, s, onMessage)
+            }
+        }
+    }
+}
+
+/** "시행령 3 · 시행규칙 1 · 감독규정 2"처럼 단계별 건수 */
+private fun levelSummary(root: LawNode): String =
+    root.children.flatMap { it.flatten() }.groupingBy { it.level }.eachCount().entries.sortedBy { it.key.ordinal }
+        .joinToString(" · ") { "${it.key.shortLabel} ${it.value}" }
+
+/** 위임 트리에서 지금 보이는 노드(항별 나누기 반영)와 인용된 법규를 모두 뒤져 id로 찾는다. */
+private fun findShown(tree: DelegationTree, inline: Boolean, id: String): LawNode? {
+    val base = if (inline) tree.root.withParagraphPieces() else tree.root
+    return base.flatten().firstOrNull { it.id == id } ?: tree.findNode(id) ?: tree.cited.flatMap { it.flatten() }.firstOrNull { it.id == id }
+}
+
+// ── 펼쳐 보기: 화면을 나누지 않고 법률 아래로 하위 규정을 차례로 펼친다
+@Composable
+private fun StackView(model: LawSearchModel, s: LawUiState.Tree, onMessage: (String) -> Unit) {
+    val filter by model.filter.collectAsState()
+    val inline by model.inline.collectAsState()
+    val tree = s.tree
+    val baseRoot = if (inline) tree.root.withParagraphPieces() else tree.root
+    val root = if (filter.isBlank()) baseRoot else TreeFilter.filter(baseRoot, filter)
+    val expanded = if (filter.isBlank()) s.expanded else root.flatten().map { it.id }.toSet()
+    val rows = visibleRows(root, expanded)
+    val cited = tree.cited.flatMap { visibleRows(it, expanded) }
+    var closed by remember(tree) { mutableStateOf(setOf<String>()) }
+    val listState = rememberLazyListState()
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            SearchField(filter, model::setFilter, {}, "결과 안에서 찾기 (단어 또는 제12조)", Modifier.weight(1f))
+            TextButton(onClick = { model.expandAll(true); closed = emptySet() }) { Text("모두 펼치기") }
+            TextButton(onClick = { model.expandAll(true); closed = (root.flatten() + tree.cited.flatMap { it.flatten() }).map { it.id }.toSet() - root.id }) { Text("제목만") }
+            TextButton(onClick = { model.expandAll(false) }) { Text("법률만") }
+            Text("항별로 나누기", style = MaterialTheme.typography.labelSmall)
+            Switch(checked = inline, onCheckedChange = model::setInline, modifier = Modifier.padding(start = 4.dp))
+        }
+        Box(Modifier.weight(1f)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(rows, key = { "s:" + it.node.id }) { r ->
+                    StackNode(r, r.node.id !in closed, onToggleBody = { closed = if (r.node.id in closed) closed - r.node.id else closed + r.node.id },
+                        onToggleChildren = { model.toggle(r.node.id) }, onSearch = { q -> model.submit(q) }, onMessage = onMessage)
+                }
+                if (cited.isNotEmpty()) {
+                    item { SectionLabel("이 조문을 인용한 하위 법규 (위임 아님)") }
+                    items(cited, key = { "sc:" + it.node.id }) { r ->
+                        StackNode(r, r.node.id !in closed, onToggleBody = { closed = if (r.node.id in closed) closed - r.node.id else closed + r.node.id },
+                            onToggleChildren = { model.toggle(r.node.id) }, onSearch = { q -> model.submit(q) }, onMessage = onMessage)
+                    }
+                }
+                if (tree.precedents.isNotEmpty()) {
+                    item { SectionLabel("관련 판례 ${tree.precedents.size}건" + tree.precedentBasis.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()) }
+                    items(tree.precedents, key = { "sp:" + it.serialNo }) { p ->
+                        ListLine(p.caseName, listOfNotNull(p.court, p.caseNumber, p.decisionDate?.let(::formatYmd), p.matchNote).joinToString(" · ")) { model.openPrecedent(p); model.setView(LawView.SPLIT) }
+                    }
+                }
+            }
+            VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StackNode(r: Row1, open: Boolean, onToggleBody: () -> Unit, onToggleChildren: () -> Unit, onSearch: (String) -> Unit, onMessage: (String) -> Unit) {
+    val n = r.node
+    val cite = citationOf(n.sourceName, n.article)
+    val bar = levelColor(n.level)
+    Row(Modifier.fillMaxWidth().padding(start = (r.depth * 22).dp)) {
+        Column(
+            Modifier.weight(1f).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+                .drawBehind { drawRect(bar, size = Size(4.dp.toPx(), size.height)) }
+                .padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onToggleBody), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (r.hasChildren) {
+                    Icon(if (r.open) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight, if (r.open) "하위 접기" else "하위 펼치기",
+                        Modifier.size(18.dp).clickable(onClick = onToggleChildren))
+                } else Spacer(Modifier.width(18.dp))
+                Pill(n.level.shortLabel, levelTone(n.level))
+                Column(Modifier.weight(1f)) {
+                    Text(listOfNotNull(n.article.fullTitle.ifBlank { n.displayHeading }, n.part).joinToString(" "), style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(n.sourceName + (n.issuer?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(onClick = { Os.copy(cite); onMessage("인용 표기를 복사했어요: $cite") }, modifier = Modifier.size(30.dp)) { Icon(Icons.Outlined.ContentCopy, "인용 복사", Modifier.size(15.dp)) }
+                Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (open) "본문 접기" else "본문 펼치기", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (open) {
+                if (n.delegatedBy.isNotEmpty()) Text("위임한 상위 조문: " + n.delegatedBy.joinToString(", ") { it.heading }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SelectionContainer { Text(n.article.body, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp, start = 24.dp)) }
+                FlowRow(Modifier.padding(start = 18.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    TextButton(onClick = { Os.copy(cite + "\n" + n.article.body); onMessage("조문 원문을 복사했어요.") }) { Text("원문 복사", style = MaterialTheme.typography.labelMedium) }
+                    if (n.level != LawLevel.LAW && n.article.number != null && n.level.ordinal <= LawLevel.RULE.ordinal) {
+                        TextButton(onClick = { onSearch(n.sourceName + " " + n.article.number!!.display) }) { Text("이 조문으로 검색", style = MaterialTheme.typography.labelMedium) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun levelColor(level: LawLevel) = when (level) {
+    LawLevel.LAW -> MaterialTheme.colorScheme.primary
+    LawLevel.DECREE -> MaterialTheme.colorScheme.tertiary
+    LawLevel.RULE -> MaterialTheme.colorScheme.secondary
+    LawLevel.SUPERVISORY_REGULATION -> MaterialTheme.colorScheme.outline
+    else -> MaterialTheme.colorScheme.outlineVariant
+}
+
+// ── 단계 비교: 위임 내용이 있는 단계만 열로 만든다(법률 + 0~4단계 = 1~5단)
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CompareView(tree: DelegationTree, onMessage: (String) -> Unit) {
+    val present = remember(tree) { tree.root.children.flatMap { it.flatten() }.map { it.level }.toSet() - LawLevel.LAW }
+    var chosen by remember(tree) { mutableStateOf(present) }
+    val columns = CompareTable.columns(chosen)
+    val rows = remember(tree, chosen) { CompareTable.build(tree.root, chosen) }
+    val names = remember(tree) {
+        tree.root.flatten().groupBy { it.level }.mapValues { (_, v) -> v.map { it.sourceName }.distinct().joinToString(" · ") }
+    }
+    val ls = rememberLazyListState()
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center) {
+            Text("${columns.size}단 비교", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 6.dp, top = 8.dp))
+            if (present.isEmpty()) Text("이 조문에는 위임받은 하위 규정이 없어 법률만 보여 줍니다.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+            LawLevel.entries.filter { it in present }.forEach { lv ->
+                FilterChip(lv in chosen, { chosen = if (lv in chosen) chosen - lv else chosen + lv }, label = { Text(lv.label) })
+            }
+            TextButton(onClick = { Os.copy(compareAsText(columns, rows)); onMessage("비교표를 복사했어요(엑셀에 붙여 넣을 수 있습니다).") }) { Text("비교표 복사") }
+        }
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp))) {
+            columns.forEach { lv ->
+                Column(Modifier.weight(1f).padding(8.dp)) {
+                    Text(lv.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(names[lv].orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            LazyColumn(state = ls, modifier = Modifier.fillMaxSize().padding(end = 10.dp)) {
+                items(rows.size) { i ->
+                    val row = rows[i]
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                        columns.forEachIndexed { ci, lv ->
+                            Box(Modifier.weight(1f).fillMaxHeight().background(if (i % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.background)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                SelectionContainer {
+                                    if (ci == 0) Text(row.lawText, style = MaterialTheme.typography.bodySmall)
+                                    else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        row.cells[lv].orEmpty().forEach { n ->
+                                            Text(listOfNotNull(n.article.fullTitle.ifBlank { n.displayHeading }, n.part).joinToString(" "), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                            Text(n.article.body, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
+                            }
+                            if (ci < columns.size - 1) VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+                if (tree.cited.isNotEmpty()) item {
+                    SectionLabel("이 조문을 인용한 하위 법규 ${tree.cited.size}건(위임 아님) · '펼쳐 보기'에서 볼 수 있습니다")
+                }
+            }
+            VerticalScrollbar(rememberScrollbarAdapter(ls), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+        }
+    }
+}
+
+private fun compareAsText(columns: List<LawLevel>, rows: List<com.hdlee73.everylaw.core.domain.CompareRow>): String = buildString {
+    fun cell(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
+    appendLine(columns.joinToString("\t") { it.label })
+    rows.forEach { r ->
+        appendLine(columns.mapIndexed { i, lv ->
+            if (i == 0) cell(r.lawText) else cell(r.cells[lv].orEmpty().joinToString("\n\n") { n -> n.displayHeading + "\n" + n.article.body })
+        }.joinToString("\t"))
+    }
+}
+
+// ── 목록+본문: 왼쪽 위임 트리, 오른쪽 본문
+@Composable
+private fun SplitView(model: LawSearchModel, s: LawUiState.Tree, onMessage: (String) -> Unit) {
     val filter by model.filter.collectAsState()
     val inline by model.inline.collectAsState()
     val detail by model.detail.collectAsState()
-    val scope = rememberCoroutineScope()
     val tree = s.tree
     val baseRoot = if (inline) tree.root.withParagraphPieces() else tree.root
     val root = if (filter.isBlank()) baseRoot else TreeFilter.filter(baseRoot, filter)
@@ -236,26 +466,9 @@ private fun TreeView(
     val cited = tree.cited.flatMap { visibleRows(it, expanded) }
     val listState = rememberLazyListState()
 
-    Row(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // ── 왼쪽: 위임 트리
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(0.46f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text(tree.law.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        (tree.version?.let { "${it.effectiveDateLabel} 시행 버전" } ?: "현행") + " · 하위 규정 ${tree.root.descendantCount}건",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                val fav = tree.query.raw in favorites
-                IconButton(onClick = { settings.toggleFavoriteLaw(tree.query.raw) }) {
-                    Icon(if (fav) Icons.Outlined.Star else Icons.Outlined.StarBorder, if (fav) "즐겨찾기 해제" else "즐겨찾기")
-                }
-                IconButton(onClick = model::openVersions) { Icon(Icons.Outlined.History, "시행 연혁") }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                SearchField(filter, model::setFilter, {}, "결과 안에서 찾기 (단어 또는 제12조)", Modifier.weight(1f))
-            }
+            SearchField(filter, model::setFilter, {}, "결과 안에서 찾기 (단어 또는 제12조)", Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { model.expandAll(true) }) { Text("모두 펼치기") }
                 TextButton(onClick = { model.expandAll(false) }) { Text("접기") }
@@ -263,7 +476,6 @@ private fun TreeView(
                 Text("항별로 나누기", style = MaterialTheme.typography.labelSmall)
                 Switch(checked = inline, onCheckedChange = model::setInline, modifier = Modifier.padding(start = 4.dp))
             }
-            tree.warnings.forEach { InfoBox(it) }
             Box(Modifier.weight(1f)) {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(end = 10.dp)) {
                     items(rows, key = { "t:" + it.node.id }) { r -> NodeRow(r, r.node.id == s.selectedId, model) }
@@ -280,24 +492,15 @@ private fun TreeView(
                 }
                 VerticalScrollbar(rememberScrollbarAdapter(listState), Modifier.align(Alignment.CenterEnd).fillMaxHeight())
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = {
-                    scope.launch {
-                        val file = runCatching { exportHwpx(tree) }.getOrElse { onMessage("한글 파일을 만들지 못했어요: ${it.message}"); null }
-                        if (file != null) { onMessage("한글 파일로 저장했어요: ${file.name}"); Os.open(file.parentFile) }
-                    }
-                }) { Text("한글(HWPX)로 저장") }
-                OutlinedButton(onClick = { Os.copy(treeAsText(tree)); onMessage("트리 전체를 복사했어요.") }) { Text("트리 복사") }
-            }
         }
-        // ── 오른쪽: 상세
         Box(Modifier.weight(0.54f).fillMaxHeight()) {
             when (val d = detail) {
                 LawDetail.None -> {
-                    val node = tree.findNode(s.selectedId) ?: tree.root
-                    NodeDetail(node, onInsertToOpinion, onMessage, onSearch = { q -> model.submit(q) })
+                    // 항별로 나눈 노드(예: 시행령 제87조 제1항)도 찾도록 지금 보이는 트리에서 찾는다.
+                    val node = findShown(tree, inline, s.selectedId) ?: tree.root
+                    NodeDetail(node, onMessage, onSearch = { q -> model.submit(q) })
                 }
-                else -> DetailView(d, onClose = model::closeDetail, onInsertToOpinion, onMessage)
+                else -> DetailView(d, onClose = model::closeDetail, onMessage)
             }
         }
     }
@@ -342,7 +545,7 @@ private fun ListLine(title: String, sub: String, onClick: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun NodeDetail(node: LawNode, onInsertToOpinion: (String) -> Unit, onMessage: (String) -> Unit, onSearch: (String) -> Unit) {
+private fun NodeDetail(node: LawNode, onMessage: (String) -> Unit, onSearch: (String) -> Unit) {
     val cite = citationOf(node.sourceName, node.article)
     AppCard(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -359,7 +562,6 @@ private fun NodeDetail(node: LawNode, onInsertToOpinion: (String) -> Unit, onMes
                 Icon(Icons.Outlined.ContentCopy, null, Modifier.size(15.dp)); Spacer(Modifier.width(4.dp)); Text("인용 복사")
             }
             OutlinedButton(onClick = { Os.copy(cite + "\n" + node.article.body); onMessage("조문 원문을 복사했어요.") }) { Text("원문 복사") }
-            OutlinedButton(onClick = { onInsertToOpinion(cite + "\n" + node.article.body); onMessage("의견서 도우미에 넣었어요.") }) { Text("의견서에 넣기") }
             if (node.level != LawLevel.LAW && node.article.number != null && node.level.ordinal <= LawLevel.RULE.ordinal) {
                 OutlinedButton(onClick = { onSearch(node.sourceName + " " + node.article.number!!.display) }) { Text("이 조문으로 검색") }
             }
@@ -376,7 +578,7 @@ private fun NodeDetail(node: LawNode, onInsertToOpinion: (String) -> Unit, onMes
 }
 
 @Composable
-fun DetailView(d: LawDetail, onClose: () -> Unit, onInsertToOpinion: (String) -> Unit, onMessage: (String) -> Unit) {
+fun DetailView(d: LawDetail, onClose: () -> Unit, onMessage: (String) -> Unit) {
     AppCard(Modifier.fillMaxSize()) {
         when (d) {
             LawDetail.None -> Unit
@@ -390,7 +592,7 @@ fun DetailView(d: LawDetail, onClose: () -> Unit, onInsertToOpinion: (String) ->
                 CardTitle("불러오지 못했어요") { TextButton(onClick = onClose) { Text("닫기") } }
                 ErrorBox(d.message)
             }
-            is LawDetail.Document -> DocumentView(d, onClose, onInsertToOpinion, onMessage)
+            is LawDetail.Document -> DocumentView(d, onClose, onMessage)
             is LawDetail.Precedent -> {
                 val p = d.detail
                 CardTitle(p.summary.caseName) { TextButton(onClick = onClose) { Text("닫기") } }
@@ -420,7 +622,7 @@ private fun Block(title: String, body: String) {
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.DocumentView(d: LawDetail.Document, onClose: () -> Unit, onInsertToOpinion: (String) -> Unit, onMessage: (String) -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.DocumentView(d: LawDetail.Document, onClose: () -> Unit, onMessage: (String) -> Unit) {
     var find by remember(d.title) { mutableStateOf(d.focus.orEmpty()) }
     val shown = if (find.isBlank()) d.articles else d.articles.filter {
         val no = TreeFilter.articleNo(find)
@@ -438,7 +640,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.DocumentView(d: LawDe
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(a.fullTitle, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                         TextButton(onClick = { val c = citationOf(d.title, a); Os.copy(c); onMessage("복사했어요: $c") }) { Text("인용") }
-                        TextButton(onClick = { onInsertToOpinion(citationOf(d.title, a) + "\n" + a.body); onMessage("의견서 도우미에 넣었어요.") }) { Text("의견서로") }
+                        TextButton(onClick = { Os.copy(citationOf(d.title, a) + "\n" + a.body); onMessage("조문 원문을 복사했어요.") }) { Text("원문 복사") }
                     }
                     SelectionContainer { Text(a.body, style = MaterialTheme.typography.bodyMedium) }
                 }
@@ -449,7 +651,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.DocumentView(d: LawDe
 }
 
 @Composable
-private fun KeywordView(model: LawSearchModel, s: LawUiState.Keyword, onInsertToOpinion: (String) -> Unit, onMessage: (String) -> Unit) {
+private fun KeywordView(model: LawSearchModel, s: LawUiState.Keyword, onMessage: (String) -> Unit) {
     val detail by model.detail.collectAsState()
     val r = s.result
     val ls = rememberLazyListState()
@@ -491,7 +693,7 @@ private fun KeywordView(model: LawSearchModel, s: LawUiState.Keyword, onInsertTo
         Box(Modifier.weight(0.54f).fillMaxHeight()) {
             if (detail == LawDetail.None) AppCard(Modifier.fillMaxSize()) {
                 EmptyState(Icons.Outlined.ManageSearch, "왼쪽에서 항목을 고르세요", "조문을 누르면 위임 트리로, 법령·행정규칙·판례를 누르면 여기에서 본문을 보여 줍니다.")
-            } else DetailView(detail, model::closeDetail, onInsertToOpinion, onMessage)
+            } else DetailView(detail, model::closeDetail, onMessage)
         }
     }
 }
@@ -535,6 +737,6 @@ private fun treeAsText(tree: DelegationTree): String = buildString {
 private suspend fun exportHwpx(tree: DelegationTree): File = withContext(Dispatchers.IO) {
     val safe = (tree.law.name + " " + tree.query.article.display).replace(Regex("""[\\/:*?"<>|]"""), "_")
     val file = File(AppDirs.exports, "$safe.hwpx")
-    file.outputStream().use { HwpxExporter.write(tree, HwpxOptions(footer = "FSS_Supporter ${BuildInfo.VERSION} · 이현덕 with Claude", heading = "FSS_Supporter 위임 법령 조회 결과"), it) }
+    file.outputStream().use { HwpxExporter.write(tree, HwpxOptions(footer = "FSS_Helper ${BuildInfo.VERSION} · 이현덕 with Claude", heading = "FSS_Helper 법률 도우미 조회 결과"), it) }
     file
 }

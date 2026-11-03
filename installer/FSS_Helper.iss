@@ -1,6 +1,6 @@
-; FSS_Supporter 설치 파일 (Inno Setup 6)
+; FSS_Helper 설치 파일 (Inno Setup 6)
 ; 관리자 권한 없이 사용자 폴더(%LOCALAPPDATA%\Programs)에 설치한다. 내부망 PC에서도 설치 가능.
-; ISCC /DAppVersion=0.1.0 /DArch=x64 /DSourceDir=...\FSS_Supporter /DOutputDir=... FSS_Supporter.iss
+; ISCC /DAppVersion=0.1.0 /DArch=x64 /DSourceDir=...\FSS_Helper /DOutputDir=... FSS_Helper.iss
 
 #ifndef AppVersion
   #define AppVersion "0.1.0"
@@ -9,7 +9,7 @@
   #define Arch "x64"
 #endif
 #ifndef SourceDir
-  #define SourceDir "..\app\build\compose\binaries\main\app\FSS_Supporter"
+  #define SourceDir "..\app\build\compose\binaries\main\app\FSS_Helper"
 #endif
 #ifndef OutputDir
   #define OutputDir "..\dist"
@@ -17,22 +17,22 @@
 
 [Setup]
 AppId={{4F1D7C3A-2B8E-4E51-9A6D-53C2E7A0B911}
-AppName=FSS_Supporter
+AppName=FSS_Helper
 AppVersion={#AppVersion}
-AppVerName=FSS_Supporter {#AppVersion}
+AppVerName=FSS_Helper {#AppVersion}
 AppPublisher=이현덕 with Claude
 AppPublisherURL=https://hdlee73.github.io/Home/
-AppSupportURL=https://github.com/hdlee73/FSS_supporter
-DefaultDirName={localappdata}\Programs\FSS_Supporter
-DefaultGroupName=FSS_Supporter
+AppSupportURL=https://github.com/hdlee73/FSS_Helper
+DefaultDirName={localappdata}\Programs\FSS_Helper
+DefaultGroupName=FSS_Helper
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir={#OutputDir}
-OutputBaseFilename=FSS_Supporter-{#AppVersion}-{#Arch}-Setup
+OutputBaseFilename=FSS_Helper-{#AppVersion}-{#Arch}-Setup
 SetupIconFile=..\app\src\main\resources\icons\app.ico
-UninstallDisplayIcon={app}\FSS_Supporter.exe
+UninstallDisplayIcon={app}\FSS_Helper.exe
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -61,9 +61,9 @@ Type: filesandordirs; Name: "{app}\runtime"
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\FSS_Supporter"; Filename: "{app}\FSS_Supporter.exe"
-Name: "{userdesktop}\FSS_Supporter"; Filename: "{app}\FSS_Supporter.exe"; Tasks: desktopicon
+Name: "{group}\FSS_Helper"; Filename: "{app}\FSS_Helper.exe"
+Name: "{userdesktop}\FSS_Helper"; Filename: "{app}\FSS_Helper.exe"; Tasks: desktopicon
 
 [Run]
 ; 업데이트(조용한 설치) 뒤에도 앱을 다시 켠다.
-Filename: "{app}\FSS_Supporter.exe"; Description: "FSS_Supporter 실행"; Flags: nowait postinstall
+Filename: "{app}\FSS_Helper.exe"; Description: "FSS_Helper 실행"; Flags: nowait postinstall
