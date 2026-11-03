@@ -98,6 +98,8 @@ data class LevelResult(
     val mitigationSteps: Int,
     val net: Int,
     val final: String,
+    /** 사전통지서에 쓰는 변경가능 구간 표기. 예: 정직(감봉 ~ 면직) */
+    val range: String,
     val clipped: Boolean,
     val lines: List<Pair<String, String>>,
 )
@@ -154,8 +156,18 @@ object SanctionCalc {
             add("감경" to "${mit}단계" + if (mitSum > mit) " (합계 ${mitSum}단계 → 상한 ${p.mitigationCapSteps}단계)" else "")
             if (clipped) add("범위" to if (target < 0) "가장 무거운 단계에서 멈춤" else "가장 가벼운 단계에서 멈춤(불문 여부는 별도 판단)")
             add("산정 결과" to p.levels.getOrElse(fi) { "-" })
+            add("사전통지 표기" to rangeLabel(p.levels, fi))
         }
-        return LevelResult(p.levels.getOrElse(i) { "-" }, agg, mit, net, p.levels.getOrElse(fi) { "-" }, clipped, lines)
+        return LevelResult(p.levels.getOrElse(i) { "-" }, agg, mit, net, p.levels.getOrElse(fi) { "-" }, rangeLabel(p.levels, fi), clipped, lines)
+    }
+
+    /** 상·하 1단계 구간: 가벼운 쪽 ~ 무거운 쪽. 목록은 무거운 것부터 */
+    fun rangeLabel(levels: List<String>, index: Int): String {
+        if (levels.isEmpty()) return "-"
+        val i = index.coerceIn(0, levels.size - 1)
+        val heavier = levels[(i - 1).coerceAtLeast(0)]
+        val lighter = levels[(i + 1).coerceAtMost(levels.size - 1)]
+        return "${levels[i]}($lighter ~ $heavier)"
     }
 
     /** 조치안에 붙일 글 */
@@ -242,10 +254,11 @@ class SanctionStore(file: File = File(AppDirs.root, "sanction.json")) {
             ),
         )
 
+        /** 제재 종류는 사전통지서 서식의 구분을 따른다(무거운 것부터). */
         val BUILT_IN_LEVELS = listOf(
-            LevelProfile("lv-exec", "임원 제재 (예시)", "임원", listOf("해임권고", "직무정지", "문책경고", "주의적경고", "주의"), RULE, COMMON_AGG, COMMON_MIT, builtIn = true),
-            LevelProfile("lv-staff", "직원 제재 (예시)", "직원", listOf("면직", "정직", "감봉", "견책", "주의"), RULE, COMMON_AGG, COMMON_MIT, builtIn = true),
-            LevelProfile("lv-inst", "기관 제재 (예시)", "기관", listOf("영업정지", "기관경고", "기관주의"), RULE, COMMON_AGG, COMMON_MIT, builtIn = true),
+            LevelProfile("lv-exec", "임원 제재", "임원", listOf("해임요구", "직무정지", "문책경고", "주의적 경고", "주의"), RULE, COMMON_AGG, COMMON_MIT, builtIn = true),
+            LevelProfile("lv-staff", "직원 제재", "직원", listOf("면직", "정직", "감봉", "견책", "주의"), RULE, COMMON_AGG, COMMON_MIT, builtIn = true),
+            LevelProfile("lv-inst", "기관 제재", "기관", listOf("인가 취소", "업무의 전부 또는 일부 정지", "기관경고", "기관주의"), RULE, COMMON_AGG, COMMON_MIT, builtIn = true),
         )
     }
 }

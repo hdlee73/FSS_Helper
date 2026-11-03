@@ -85,4 +85,37 @@ class CoreLogicTest {
         assertEquals(1, ps[3].depth)
         assertEquals(HwpxParagraph.Style.GRAY, ps[4].style)
     }
+
+    @Test fun rangeLabelFollowsNoticeForm() {
+        val staff = SanctionStore.BUILT_IN_LEVELS.first { it.target == "직원" }.levels
+        assertEquals("정직(감봉 ~ 면직)", SanctionCalc.rangeLabel(staff, 1))
+        assertEquals("면직(정직 ~ 면직)", SanctionCalc.rangeLabel(staff, 0))
+        assertEquals("주의(주의 ~ 견책)", SanctionCalc.rangeLabel(staff, 4))
+    }
+
+    @Test fun templatesExportWithTables() {
+        assertEquals(listOf("직위", "성명", ""), OpinionModel.tableCells("| 직위 | 성명 |  |"))
+        assertEquals(null, OpinionModel.tableCells("1. 제목"))
+        OpinionModel.BUILT_IN.forEach { t ->
+            val paras = OpinionModel.toParagraphs(t.body)
+            val hwpx = java.io.ByteArrayOutputStream()
+            com.hdlee73.everylaw.core.domain.HwpxExporter.writeDocument(t.name, paras, hwpx)
+            assertTrue(hwpx.size() > 0)
+            val docx = java.io.ByteArrayOutputStream()
+            io.github.hdlee73.fsssupporter.opinion.DocxWriter.write(t.body.lines(), docx)
+            val xml = java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(docx.toByteArray())).use { z ->
+                generateSequence { z.nextEntry }.first { it.name == "word/document.xml" }; z.readBytes().toString(Charsets.UTF_8)
+            }
+            javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(xml.byteInputStream())
+            if (t.body.contains("| 직위")) assertTrue(xml.contains("<w:tbl>"), t.name)
+        }
+        val section = java.io.ByteArrayOutputStream().also {
+            com.hdlee73.everylaw.core.domain.HwpxExporter.writeDocument("t", OpinionModel.toParagraphs(OpinionModel.BUILT_IN.first().body), it)
+        }
+        val sec = java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(section.toByteArray())).use { z ->
+            generateSequence { z.nextEntry }.first { it.name.endsWith("section0.xml") }; z.readBytes().toString(Charsets.UTF_8)
+        }
+        assertTrue(sec.contains("<hp:tbl"))
+        javax.xml.parsers.DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(sec.byteInputStream())
+    }
 }

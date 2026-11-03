@@ -36,7 +36,13 @@ data class HwpxOptions(
 )
 
 /** [HwpxExporter.writeDocument]에 넘기는 문단 한 개 */
-data class HwpxParagraph(val text: String, val style: Style = Style.BODY, val depth: Int = 0) {
+data class HwpxParagraph(
+    val text: String,
+    val style: Style = Style.BODY,
+    val depth: Int = 0,
+    /** 표의 한 줄이면 칸 글자들. 이어진 표 줄은 한 표로 묶고 첫 줄을 제목 줄로 쓴다. */
+    val cells: List<String>? = null,
+) {
     enum class Style { TITLE, SUBTITLE, SECTION, BOLD, BODY, META, GRAY }
 }
 
@@ -167,7 +173,14 @@ object HwpxExporter {
         val pageW = 595 * 100
         val pageH = 842 * 100
         val body = Body().also { it.pageTextWidth = pageW - MARGIN * 2 }
+        val pending = mutableListOf<HwpxParagraph>()
+        fun flushTable() {
+            if (pending.isNotEmpty()) docTable(body, pending.map { it.cells.orEmpty() }, pageW)
+            pending.clear()
+        }
         paragraphs.forEach { p ->
+            if (p.cells != null) { pending += p; return@forEach }
+            flushTable()
             val char = when (p.style) {
                 HwpxParagraph.Style.TITLE -> C_TITLE
                 HwpxParagraph.Style.SUBTITLE -> C_SUBTITLE
@@ -180,7 +193,39 @@ object HwpxExporter {
             if (p.style == HwpxParagraph.Style.TITLE) body.raw(paragraphXml(body.nextId(), p.text, char, P_CENTER))
             else body.paragraph(p.text, char, p.depth)
         }
+        flushTable()
         pack(body, false, pageW, pageH, title, title, out)
+    }
+
+    /** 문서 속 간단한 표. 칸 너비는 글자 수에 비례해 나눈다. 첫 줄은 굵게 가운데. */
+    private fun docTable(body: Body, rows: List<List<String>>, pageW: Int) {
+        val colCnt = rows.maxOf { it.size }.coerceAtLeast(1)
+        val grid = rows.map { r -> List(colCnt) { r.getOrElse(it) { "" } } }
+        val total = pageW - MARGIN * 2 - 100
+        val weights = (0 until colCnt).map { c -> grid.maxOf { it[c].length }.coerceIn(2, 14).toDouble() }
+        val widths = weights.map { (total * it / weights.sum()).toInt() }
+        val cellChar = 24
+        val lineH = sizeOf(cellChar) * LINE_FACTOR
+        val heights = grid.map { r -> (r.indices.maxOf { c -> wrap(r[c], (widths[c] - CELL_PAD * 2) * 0.93, sizeOf(cellChar)).size.coerceAtLeast(1) } * lineH + CELL_PAD * 2).toInt() }
+        val sb = StringBuilder()
+        sb.append("""<hp:tbl id="${body.nextId()}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${grid.size}" colCnt="$colCnt" cellSpacing="0" borderFillIDRef="3" noAdjust="0">""")
+        sb.append("""<hp:sz width="${widths.sum()}" widthRelTo="ABSOLUTE" height="${heights.sum()}" heightRelTo="ABSOLUTE" protect="0"/>""")
+        sb.append("""<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>""")
+        sb.append("""<hp:outMargin left="0" right="0" top="0" bottom="0"/><hp:inMargin left="$CELL_PAD" right="$CELL_PAD" top="$CELL_PAD" bottom="$CELL_PAD"/>""")
+        grid.forEachIndexed { r, row ->
+            sb.append("<hp:tr>")
+            row.forEachIndexed { c, text ->
+                val head = r == 0
+                sb.append("""<hp:tc name="" header="${if (head) 1 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="3">""")
+                sb.append("""<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">""")
+                sb.append(paragraphXml(body.nextId(), text, if (head) 25 else cellChar, if (head) P_CENTER else pIndent(0)))
+                sb.append("</hp:subList>")
+                sb.append("""<hp:cellAddr colAddr="$c" rowAddr="$r"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="${widths[c]}" height="${heights[r]}"/><hp:cellMargin left="$CELL_PAD" right="$CELL_PAD" top="$CELL_PAD" bottom="$CELL_PAD"/></hp:tc>""")
+            }
+            sb.append("</hp:tr>")
+        }
+        sb.append("</hp:tbl>")
+        body.raw("""<hp:p id="${body.nextId()}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">$sb<hp:t/></hp:run></hp:p>""")
     }
 
     private fun pack(body: Body, landscape: Boolean, pageW: Int, pageH: Int, docTitle: String, preview: String, out: OutputStream) {
